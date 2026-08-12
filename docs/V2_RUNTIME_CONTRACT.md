@@ -1,14 +1,14 @@
 # CoPenguin V2 Runtime Contract
 
-Status: implementation proposal under the accepted V2 product direction
+Status: implementation active; V2-001 started
 
 Accepted product theme: Trusted Closure
 
 Accepted Alpha Golden Path: Source to Inspectable Artifact
 
-This document turns the accepted V2 direction into proposed implementation
-constraints. The implementation order and individual contracts remain
-reviewable. It does
+This document turns the accepted V2 direction into implementation constraints.
+The accepted delivery order is `V2-001 -> V2-007`; individual contracts remain
+reviewable within each slice. It does
 not authorize autonomous promotion or broaden the current side-effect policy.
 
 ## 1. Required invariants

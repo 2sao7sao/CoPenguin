@@ -9,6 +9,10 @@ expanding autonomy.
 The accepted Alpha Golden Path is **Source to Inspectable Artifact**. This is a
 scope decision awaiting interview and Pilot evidence, not a validation result.
 
+Engineering proceeds in the accepted `V2-001 -> V2-007` order. V2-001 is the
+active implementation slice; each slice must pass its own acceptance criteria
+before the next slice begins.
+
 - [V2 product and engineering direction](V2_PRODUCT_ENGINEERING_DIRECTION.md)
 - [V2 Runtime Contract](V2_RUNTIME_CONTRACT.md)
 
