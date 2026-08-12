@@ -250,7 +250,7 @@ class FeishuWebhookService:
                 "route_type": ingress.record.route_type.value,
                 "thread_id": ingress.record.thread_id,
             }
-        reply = await self._agent.handle(parsed)
+        reply = await self._agent.handle(parsed, inbox_record=ingress.record)
         if reply.text:
             await self._messenger.send_text(chat_id=parsed.chat_id, text=reply.text)
         return {

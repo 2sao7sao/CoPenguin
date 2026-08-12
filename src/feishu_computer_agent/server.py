@@ -21,13 +21,14 @@ from super_agent_runtime import (
     ThreadCoordinator,
 )
 
+from .action_gateway import DurableComputerActionGateway
 from .agent import PrivateAssistantAgent
 from .computer import build_computer_provider
 from .config import Settings, load_settings
 from .feishu import FeishuEventParser, FeishuMessenger, FeishuPayloadError, FeishuWebhookService
 from .knowledge import build_knowledge_runtime
 from .memory import build_memory_runtime
-from .security import AccessController, ApprovalStore, RiskClassifier
+from .security import AccessController, RiskClassifier
 
 
 class LocalIngressRequest(BaseModel):
@@ -63,9 +64,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     memory = build_memory_runtime(settings.memory_enabled, settings.memory_dir)
     knowledge = build_knowledge_runtime(settings.knowledge_enabled, settings.kb_root)
     computer = build_computer_provider(settings)
-    approvals = ApprovalStore(ttl_seconds=settings.approval_ttl_seconds)
     runtime = SQLiteRuntimeRepository(settings.runtime_database)
     artifacts = ArtifactCAS(settings.artifact_dir)
+    computer_actions = DurableComputerActionGateway(
+        repository=runtime,
+        artifacts=artifacts,
+        provider=computer,
+        approval_ttl_seconds=settings.approval_ttl_seconds,
+    )
     snapshots = SnapshotStore(artifacts)
     threads = ThreadCoordinator(runtime, artifacts)
     default_agent_snapshot = snapshots.put_agent(
@@ -96,8 +102,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     agent = PrivateAssistantAgent(
         memory=memory,
         knowledge=knowledge,
-        computer=computer,
-        approvals=approvals,
+        computer_actions=computer_actions,
         risk_classifier=RiskClassifier(),
         approval_required=settings.approval_required,
     )
@@ -112,7 +117,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title=settings.app_name, version="0.1.0")
     app.state.settings = settings
     app.state.agent = agent
-    app.state.approvals = approvals
+    app.state.computer_actions = computer_actions
     app.state.runtime = runtime
     app.state.artifacts = artifacts
     app.state.snapshots = snapshots
@@ -172,7 +177,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             action = runtime.get_action_intent(intent_id)
         except NotFound as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        return {"action": action.as_dict()}
+        receipts = runtime.list_action_receipts(intent_id=intent_id)
+        return {
+            "action": action.as_dict(),
+            "receipts": [receipt.as_dict() for receipt in receipts],
+        }
 
     @app.get("/runtime/inbox")
     async def runtime_inbox(
@@ -223,12 +232,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         status: ApprovalState | None = None,
         limit: int = 100,
     ) -> dict[str, object]:
+        runtime.expire_pending_approvals()
         safe_limit = max(1, min(limit, 500))
         approvals = runtime.list_approvals(status=status, limit=safe_limit)
         return {"approvals": [approval.as_dict() for approval in approvals]}
 
     @app.get("/runtime/approvals/{approval_id}")
     async def runtime_approval(approval_id: str) -> dict[str, object]:
+        runtime.expire_pending_approvals()
         try:
             approval = runtime.get_approval(approval_id)
         except NotFound as exc:

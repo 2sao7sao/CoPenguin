@@ -2,19 +2,29 @@ from __future__ import annotations
 
 import re
 
-from .computer import ComputerProvider
+from super_agent_runtime import (
+    ActionStatus,
+    ApprovalState,
+    InboxRecord,
+    InvalidTransition,
+    NotFound,
+)
+
+from .action_gateway import (
+    ApprovalAuthorizationError,
+    ComputerActionGateway,
+    ComputerActionResult,
+)
 from .knowledge import KnowledgeRuntime
 from .memory import MemoryRuntime
 from .models import (
     AgentIntent,
     AgentReply,
-    ApprovalStatus,
-    ComputerTask,
     InboundMessage,
     ParsedCommand,
     RiskLevel,
 )
-from .security import ApprovalStore, RiskClassifier
+from .security import RiskClassifier
 
 
 class CommandParser:
@@ -55,37 +65,37 @@ class PrivateAssistantAgent:
         *,
         memory: MemoryRuntime,
         knowledge: KnowledgeRuntime,
-        computer: ComputerProvider,
-        approvals: ApprovalStore,
+        computer_actions: ComputerActionGateway,
         risk_classifier: RiskClassifier,
         approval_required: bool,
     ) -> None:
         self._memory = memory
         self._knowledge = knowledge
-        self._computer = computer
-        self._approvals = approvals
+        self._computer_actions = computer_actions
         self._risk_classifier = risk_classifier
         self._approval_required = approval_required
         self._parser = CommandParser()
 
-    async def handle(self, message: InboundMessage) -> AgentReply:
+    async def handle(
+        self,
+        message: InboundMessage,
+        *,
+        inbox_record: InboxRecord | None = None,
+    ) -> AgentReply:
         command = self._parser.parse(message.text)
         session_id = f"{message.platform}:{message.actor_id}"
 
         if command.intent == AgentIntent.STATUS:
-            pending = [
-                item for item in self._approvals.pending() if item.status == ApprovalStatus.PENDING
-            ]
             return AgentReply(
                 intent=AgentIntent.STATUS,
                 text=(
-                    f"Agent online. computer_provider={self._computer.name}; "
-                    f"pending_approvals={len(pending)}"
+                    f"Agent online. computer_provider={self._computer_actions.provider_name}; "
+                    f"pending_approvals={self._computer_actions.pending_approval_count()}"
                 ),
             )
 
         if command.intent in {AgentIntent.APPROVE, AgentIntent.DENY}:
-            return await self._handle_approval_command(command, message)
+            return await self._handle_approval_command(command, message, inbox_record)
 
         if command.intent == AgentIntent.REMEMBER:
             result = self._memory.ingest_turn(
@@ -108,7 +118,7 @@ class PrivateAssistantAgent:
             return AgentReply(intent=AgentIntent.KNOWLEDGE, text=rendered[:4000], metadata=result)
 
         if command.intent == AgentIntent.COMPUTER:
-            return await self._handle_computer_task(message, command.argument)
+            return await self._handle_computer_task(message, command.argument, inbox_record)
 
         self._memory.ingest_turn(session_id=session_id, text=message.text, source="feishu_turn")
         context = self._memory.prompt_context(session_id=session_id, query=message.text)
@@ -130,46 +140,100 @@ class PrivateAssistantAgent:
         self,
         command: ParsedCommand,
         message: InboundMessage,
+        inbox_record: InboxRecord | None,
     ) -> AgentReply:
         assert command.approval_id is not None
+        if inbox_record is None:
+            return AgentReply(
+                intent=command.intent,
+                text="Approval decision was not durably routed; refusing to apply it.",
+            )
+        decision = (
+            ApprovalState.APPROVED
+            if command.intent == AgentIntent.APPROVE
+            else ApprovalState.DENIED
+        )
+        try:
+            result = await self._computer_actions.decide(
+                message=message,
+                inbox_record=inbox_record,
+                approval_id=command.approval_id,
+                decision=decision,
+            )
+        except NotFound:
+            return AgentReply(intent=command.intent, text="Approval request not found.")
+        except ApprovalAuthorizationError:
+            return AgentReply(
+                intent=command.intent,
+                text="This actor is not authorized to decide that approval.",
+            )
+        except InvalidTransition as exc:
+            return AgentReply(intent=command.intent, text=f"Approval decision refused: {exc}")
+
+        approval = result.approval
+        assert approval is not None
         if command.intent == AgentIntent.DENY:
-            item = self._approvals.deny(command.approval_id, message.actor_id)
-            if item is None:
-                return AgentReply(intent=AgentIntent.DENY, text="Approval request not found.")
-            return AgentReply(intent=AgentIntent.DENY, text=f"Approval {item.approval_id} denied.")
+            if approval.status == ApprovalState.DENIED:
+                return AgentReply(
+                    intent=AgentIntent.DENY,
+                    text=f"Approval {approval.approval_id} denied.",
+                )
+            return AgentReply(
+                intent=AgentIntent.DENY,
+                text=(
+                    f"Approval {approval.approval_id} is {approval.status.value}; "
+                    "cannot deny it."
+                ),
+            )
 
-        item = self._approvals.approve(command.approval_id, message.actor_id)
-        if item is None:
-            return AgentReply(intent=AgentIntent.APPROVE, text="Approval request not found.")
-        if item.status != ApprovalStatus.APPROVED:
+        if approval.status != ApprovalState.APPROVED:
             return AgentReply(
                 intent=AgentIntent.APPROVE,
-                text=f"Approval {item.approval_id} is {item.status.value}; cannot execute.",
+                text=(
+                    f"Approval {approval.approval_id} is {approval.status.value}; "
+                    "cannot execute."
+                ),
             )
-        task = self._approvals.consume_approved(item.approval_id)
-        if task is None:
-            return AgentReply(
-                intent=AgentIntent.APPROVE,
-                text=f"Approval {item.approval_id} could not be consumed.",
-            )
-        observation = await self._computer.run(task)
-        return AgentReply(
+        return self._reply_for_action_result(
             intent=AgentIntent.APPROVE,
-            text=observation.summary,
-            observation=observation,
+            approval_id=approval.approval_id,
+            result=result,
         )
 
-    async def _handle_computer_task(self, message: InboundMessage, instruction: str) -> AgentReply:
+    async def _handle_computer_task(
+        self,
+        message: InboundMessage,
+        instruction: str,
+        inbox_record: InboxRecord | None,
+    ) -> AgentReply:
+        if inbox_record is None:
+            return AgentReply(
+                intent=AgentIntent.COMPUTER,
+                text="Computer task was not durably routed; refusing to execute it.",
+            )
         risk = self._risk_classifier.classify(instruction)
-        task = ComputerTask(
-            instruction=instruction,
-            requester_id=message.actor_id,
-            chat_id=message.chat_id,
-            message_id=message.message_id,
-            risk=risk,
-        )
-        if self._approval_required or risk in {RiskLevel.HIGH, RiskLevel.CRITICAL}:
-            pending = self._approvals.create(task)
+        requires_approval = self._approval_required or risk in {
+            RiskLevel.HIGH,
+            RiskLevel.CRITICAL,
+        }
+        try:
+            result = await self._computer_actions.submit(
+                message=message,
+                inbox_record=inbox_record,
+                instruction=instruction,
+                risk=risk,
+                requires_approval=requires_approval,
+            )
+        except InvalidTransition as exc:
+            return AgentReply(
+                intent=AgentIntent.COMPUTER,
+                text=f"Computer task refused: {exc}",
+            )
+        if (
+            result.approval is not None
+            and result.approval.status == ApprovalState.PENDING
+        ):
+            pending = result.approval
             return AgentReply(
                 intent=AgentIntent.COMPUTER,
                 requires_approval=True,
@@ -182,9 +246,45 @@ class PrivateAssistantAgent:
                     f"deny: /deny {pending.approval_id}"
                 ),
             )
-        observation = await self._computer.run(task)
-        return AgentReply(
+        return self._reply_for_action_result(
             intent=AgentIntent.COMPUTER,
-            text=observation.summary,
-            observation=observation,
+            approval_id=result.approval.approval_id if result.approval else None,
+            result=result,
+        )
+
+    def _reply_for_action_result(
+        self,
+        *,
+        intent: AgentIntent,
+        approval_id: str | None,
+        result: ComputerActionResult,
+    ) -> AgentReply:
+        if result.observation is not None:
+            return AgentReply(
+                intent=intent,
+                text=result.observation.summary,
+                observation=result.observation,
+                approval_id=approval_id,
+                metadata={
+                    "intent_id": result.intent.intent_id,
+                    "receipt_id": result.receipt.receipt_id if result.receipt else None,
+                },
+            )
+        if result.intent.status == ActionStatus.RECONCILE_REQUIRED:
+            text = (
+                f"Action {result.intent.intent_id} has an unknown provider outcome; "
+                "reconciliation is required before retrying."
+            )
+        elif result.intent.status in {ActionStatus.EXECUTING, ActionStatus.RECOVERING}:
+            text = f"Action {result.intent.intent_id} is already executing."
+        else:
+            text = f"Action {result.intent.intent_id} is {result.intent.status.value}."
+        return AgentReply(
+            intent=intent,
+            text=text,
+            approval_id=approval_id,
+            metadata={
+                "intent_id": result.intent.intent_id,
+                "receipt_id": result.receipt.receipt_id if result.receipt else None,
+            },
         )

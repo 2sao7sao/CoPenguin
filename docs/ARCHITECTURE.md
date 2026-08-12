@@ -10,8 +10,10 @@ flowchart LR
   R --> M["EvolveMemory adapter"]
   R --> K["EvolveKB adapter"]
   R --> P["Planner / agent loop"]
-  P --> Q["Approval queue"]
-  Q --> C["Computer provider"]
+  P --> Q["Persistent Approval + policy snapshot"]
+  Q --> I["Action Intent + fenced claim"]
+  I --> C["Computer provider"]
+  C --> RC["Observation Artifact + Receipt"]
   C --> O["Desktop / browser / shell / remote VM"]
   P --> F
 ```
@@ -55,13 +57,21 @@ EvolveMemory should own user memory:
 - parses commands,
 - stores explicit/user turns in memory,
 - calls EvolveKB for `/kb`,
-- queues or executes `/computer` tasks.
+- delegates `/computer`, `/approve`, and `/deny` to the durable action gateway.
+
+`action_gateway.py`
+
+- binds the durable Inbox message to its TaskThread and Run,
+- creates immutable request and policy Artifacts,
+- creates Action Intent and persistent Approval,
+- authorizes the requester-only decision,
+- claims Provider execution and records an observation Artifact and Receipt,
+- returns uncertain Provider outcomes as `RECONCILE_REQUIRED`.
 
 `security.py`
 
 - owner allowlist,
-- risk classification,
-- in-memory approval queue.
+- compatibility risk classification.
 
 `computer.py`
 

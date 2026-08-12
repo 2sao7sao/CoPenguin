@@ -37,7 +37,9 @@ User:
 /approve abc123
 ```
 
-Only then does the provider run.
+Only then does the durable gateway acquire a fenced Action claim and call the
+provider. The request, policy, decision evidence, observation, and Receipt remain
+inspectable after restart.
 
 ## Durable Side-Effect Boundary
 
@@ -53,7 +55,6 @@ the original idempotency key; it cannot blindly repeat the action.
 
 Before real computer control:
 
-- persist approvals and audit logs;
 - add Feishu interactive-card approvals with callback validation;
 - add per-task timeout and cancellation;
 - add screenshot/DOM redaction policy;
@@ -61,6 +62,10 @@ Before real computer control:
 - require stronger confirmation for `critical` tasks;
 - sandbox non-owner/group sessions;
 - rotate Feishu app secrets if leaked.
+
+The current text-command policy is requester-only. More complex approver roles must
+remain capability-, Project-, risk-, and scope-specific; writing `resolved_by` is not
+itself proof of authorization.
 
 ## Recommended Policy
 

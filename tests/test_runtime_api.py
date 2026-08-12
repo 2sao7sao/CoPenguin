@@ -55,6 +55,7 @@ def test_runtime_action_projection_endpoint(tmp_path) -> None:
     assert response.status_code == 200
     assert response.json()["actions"][0]["intent_id"] == intent.intent_id
     assert detail.json()["action"]["status"] == "pending"
+    assert detail.json()["receipts"] == []
 
 
 def test_runtime_inbox_and_approval_projection_endpoints(tmp_path) -> None:

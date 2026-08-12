@@ -16,13 +16,14 @@ from super_agent_runtime import (
     SQLiteRuntimeRepository,
 )
 
+from .action_gateway import DurableComputerActionGateway
 from .agent import PrivateAssistantAgent
 from .computer import build_computer_provider
 from .config import load_settings
 from .knowledge import build_knowledge_runtime
 from .memory import build_memory_runtime
 from .models import ChatType, InboundMessage
-from .security import ApprovalStore, RiskClassifier
+from .security import RiskClassifier
 
 
 def main() -> None:
@@ -61,6 +62,12 @@ async def _run_local(
     knowledge = build_knowledge_runtime(settings.knowledge_enabled, settings.kb_root)
     runtime = SQLiteRuntimeRepository(settings.runtime_database)
     artifacts = ArtifactCAS(settings.artifact_dir)
+    computer_actions = DurableComputerActionGateway(
+        repository=runtime,
+        artifacts=artifacts,
+        provider=computer,
+        approval_ttl_seconds=settings.approval_ttl_seconds,
+    )
     snapshots = SnapshotStore(artifacts)
     created_at = datetime.now(UTC)
     agent_snapshot = snapshots.put_agent(
@@ -102,8 +109,7 @@ async def _run_local(
     agent = PrivateAssistantAgent(
         memory=memory,
         knowledge=knowledge,
-        computer=computer,
-        approvals=ApprovalStore(ttl_seconds=settings.approval_ttl_seconds),
+        computer_actions=computer_actions,
         risk_classifier=RiskClassifier(),
         approval_required=settings.approval_required,
     )
@@ -116,7 +122,8 @@ async def _run_local(
             sender_open_id="local-user",
             text=text,
             created_at=created_at,
-        )
+        ),
+        inbox_record=accepted.record,
     )
     print(reply.text)
 

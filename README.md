@@ -173,7 +173,10 @@ The first concrete recipe is specified in the
 an explicitly selected Feishu source becomes a verified Project Decision Record,
 then an accepted Delivery can be published to a Wiki draft through durable approval.
 The first implementation slice, [V2-001 Unified Ingress](docs/V2_001_UNIFIED_INGRESS.md),
-has passed its branch-level acceptance tests.
+has passed its branch-level acceptance tests. The next slice,
+[V2-002 Durable Product Approvals](docs/V2_002_DURABLE_PRODUCT_APPROVALS.md), removes
+the product-path in-memory approval queue and binds computer actions to durable
+Intent, Approval, claim, observation Artifact, and Receipt records.
 
 ## Stable vs Prototype
 
@@ -185,12 +188,14 @@ has passed its branch-level acceptance tests.
 - Feishu/local unified ingress, restart-safe inbound dedupe, normalized message
   Artifacts, and conservative persistent route decisions;
 - durable Action Intents, Receipts, approvals, expiry, and reconciliation;
+- `/computer`, `/approve`, and `/deny` use the durable action boundary; requester-only
+  policy snapshots and decision-evidence Artifacts survive restart;
 - Feishu parsing, owner allowlist, text approval commands, `dry-run`, and opt-in allowlisted `local-shell`.
 
 ### Deliberately incomplete
 
-- first-seen messages still pass from durable Ingress to the compatibility
-  assistant; V2-002 removes its in-memory approval path;
+- first-seen messages still pass from durable Ingress to the compatibility assistant;
+  its computer gateway temporarily executes claimed Actions inline until V2-004;
 - outbound response delivery is not transactional until the Outbox slice;
 - Step/verifier/Delivery events and atomic terminal completion are next runtime slices;
 - interactive Feishu cards, long-connection mode, and a real computer-use provider are not shipped;

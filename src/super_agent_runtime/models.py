@@ -327,6 +327,9 @@ class ActionReceipt:
     external_reference: str | None = None
     evidence: Mapping[str, Any] = field(default_factory=dict)
 
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
 
 @dataclass(frozen=True)
 class InboxRecord:

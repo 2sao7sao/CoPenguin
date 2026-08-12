@@ -143,17 +143,15 @@ Intent creation, external execution, Receipt recording, and verification.
 
 1. Complete problem interviews and select the narrow pilot workflow. Continue
    Runtime work only where it supports pilot safety, delivery, or measurement.
-2. Replace the compatibility assistant's in-memory approval path with durable
-   Runtime Approval and Intent handling (V2-002).
-3. Apply Thread updates, cancellation, and route confirmation semantics
+2. Apply Thread updates, cancellation, and route confirmation semantics
    durably (V2-003).
-4. Complete the worker lifecycle with Step events, heartbeat, verifier,
+3. Complete the worker lifecycle with Step events, heartbeat, verifier,
    Delivery, and atomic scheduler/Run completion.
-5. Add a versioned Hook Registry for pre-route, pre-context, pre-action,
+4. Add a versioned Hook Registry for pre-route, pre-context, pre-action,
    post-action, verifier, and exception hooks. Hooks may advise or block but may
    not mutate durable state outside an Intent.
-6. Add a self-loop monitor that derives observations from events, detects
+5. Add a self-loop monitor that derives observations from events, detects
    stalls/repeated corrections/policy violations, and opens reviewable
    remediation Tasks.
-7. Only after product and runtime gates pass, add candidate, independent evaluation,
+6. Only after product and runtime gates pass, add candidate, independent evaluation,
    shadow execution, pointer promotion, monitoring, and rollback.

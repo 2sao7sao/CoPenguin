@@ -1971,6 +1971,13 @@ class SQLiteRuntimeRepository:
             raise NotFound(f"approval not found: {approval_id}")
         return self._row_to_approval(row)
 
+    def find_approval_for_intent(self, intent_id: str) -> ApprovalRequest | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM runtime_approvals WHERE intent_id = ?", (intent_id,)
+            ).fetchone()
+        return self._row_to_approval(row) if row is not None else None
+
     def list_approvals(
         self,
         *,
@@ -2409,6 +2416,26 @@ class SQLiteRuntimeRepository:
                 values,
             ).fetchall()
         return [self._row_to_action_intent(row) for row in rows]
+
+    def list_action_receipts(
+        self,
+        *,
+        intent_id: str,
+        limit: int = 100,
+    ) -> list[ActionReceipt]:
+        if limit < 1:
+            raise ValueError("limit must be at least 1")
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM action_receipts
+                WHERE intent_id = ?
+                ORDER BY occurred_at DESC, receipt_id DESC
+                LIMIT ?
+                """,
+                (intent_id, limit),
+            ).fetchall()
+        return [self._row_to_action_receipt(row) for row in rows]
 
     # ------------------------------------------------------------------
     # Internal serialization and transaction helpers

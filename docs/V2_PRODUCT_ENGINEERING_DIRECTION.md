@@ -1,6 +1,6 @@
 # CoPenguin V2 产品与工程优化方向
 
-状态：产品方向与 `V2-001 -> V2-007` 工程实施顺序已确认；V2-001 已完成分支验收
+状态：产品方向与 `V2-001 -> V2-007` 工程实施顺序已确认；V2-001、V2-002 已完成分支验收
 
 版本主题：**Trusted Closure / 可信闭环**
 
@@ -23,8 +23,9 @@ CoPenguin 当前最大的优点与最大的问题是同一件事：
 > Runtime 的耐久性设计已经明显领先于实际产品路径。
 
 事件日志、Thread/Run replay、scheduler fencing、Artifact CAS、Intent/Receipt、
-持久审批等基础原语已经存在；但用户真正使用的飞书和 `/computer` 链路仍经过旧的
-`PrivateAssistantAgent + in-memory ApprovalStore`，没有端到端进入这套 Runtime。
+持久审批等基础原语已经存在。初始审计发现飞书和 `/computer` 仍绕过这些原语；V2-001
+已统一 Ingress，V2-002 已统一电脑动作的 Approval 与 Receipt。Worker、Delivery 和用户决定
+闭环仍待 V2-003 → V2-007 完成。
 
 因此，V2 不应以“更多工具、更强模型、自动自我进化”为目标，而应完成一条可以实际使用、
 可以中断恢复、可以验证结果、可以积累信任的主链：
@@ -70,9 +71,9 @@ V2 的一句话定位建议是：
 | 事件与 replay | Implemented | append-only journal、纯 reducer、projection hash | 缺少 event upcaster、完整迁移和启动时一致性审计 |
 | Thread 隔离 | Implemented | Project → TaskThread → Run；同 Thread single-writer | Branch 只有字段，没有 fork/merge/reject 语义 |
 | 并发调度 | Partial | queue、claim、heartbeat、retry、lease、fencing | 没有常驻 Worker Host；scheduler 终态未与 Run/Delivery 原子提交 |
-| Context 冻结 | Implemented | Task/Agent/Context snapshot + CAS | 实际消息入口没有使用；Memory/KB snapshot 仍是空引用 |
-| Inbox 路由 | Partial | 保守路由和持久 route record | 飞书/本地 CLI 绕过；Thread update 没有写入 Thread history；歧义没有产品确认流 |
-| 外部动作治理 | Partial | durable Intent/Receipt/reconciliation/Approval | 实际 `/computer` 使用内存审批并直接调用 Provider |
+| Context 冻结 | Implemented | 新任务入口绑定 Task/Agent/Context snapshot + CAS | Memory/KB snapshot 仍是空引用 |
+| Inbox 路由 | Partial | 飞书/本地 CLI 已统一进入保守路由与持久 route record | Thread update 没有写入 Thread history；歧义没有产品确认流 |
+| 外部动作治理 | Partial | `/computer` 已接入 durable Intent/Approval/claim/Receipt | 暂由 compatibility gateway inline 执行；缺少 Worker Host 与 Provider reconciler |
 | 交付 | Specified/Partial | `delivery.recorded` 原语 | 没有 verifier、交付版本、用户决定、修改后新 Run 和结果通知 |
 | 记忆 | Partial | EvolveMemory adapter | 当前 scope 主要是 `platform:actor`；没有产品层审阅、纠正、忘记和“待推理画像”状态 |
 | 知识与技能 | Partial | EvolveKB adapter | Run 未绑定实际 KB/Skill snapshot；使用结果不会形成受治理提案链 |
@@ -85,8 +86,9 @@ V2 的一句话定位建议是：
 
 ### P0-1：产品承诺与当前体验不一致
 
-README 描述的是持久任务、并发执行、可检查交付和安全动作；实际普通消息只得到一条通用回复，
-`/computer` 使用另一套内存审批。用户看不到 TaskThread、Run、Artifact、Attention 或 Receipt。
+README 描述的是持久任务、并发执行、可检查交付和安全动作；普通消息仍只得到一条兼容回复。
+V2-002 已把 `/computer` 接入持久审批与 Receipt，但用户仍看不到完整的 Run、Artifact、
+Attention 或 Delivery 闭环。
 
 影响：
 
@@ -223,7 +225,7 @@ V2 应强调四项更难被平台默认能力替代的价值：
 
 ### P0-1：存在两套事实源与两套审批系统
 
-实际路径：
+V2-002 之前的实际路径：
 
 ```text
 Feishu -> PrivateAssistantAgent -> in-memory ApprovalStore -> ComputerProvider
@@ -239,7 +241,8 @@ Ingress -> InboxCoordinator -> TaskThread -> Worker
 这不是普通技术债，而是安全边界失效：进程重启会丢失当前产品路径的待审批项，Provider
 执行也不会留下 Runtime Intent/Receipt。
 
-V2 必须删除产品路径对 `ApprovalStore` 的依赖；兼容层可以暂时存在，但不得执行真实动作。
+V2-002 已删除产品路径对内存 `ApprovalStore` 的依赖。兼容层目前只能在取得 fenced Action claim
+后执行，并写入 Receipt；V2-004 再把这一执行职责迁移到 Worker Host。
 
 ### P0-2：Runtime 原语没有执行宿主
 
@@ -274,11 +277,11 @@ V2 需要一个 `finalize_run()` 事务，同时提交：
 5. scheduler terminal state；
 6. notification outbox item。
 
-### P0-4：真实 Ingress 缺少端到端幂等与 Outbox
+### P0-4：真实 Ingress 已统一，但仍缺少 Outbox
 
-Runtime inbox 表可以按 `platform:message_id` 幂等，但飞书 Webhook 实际路径没有先写入它。
-Webhook 重试可能重复创建内存审批或重复调用 Provider。发送回复也没有 transactional outbox，
-进程在“提交状态”和“发送消息”之间崩溃时会漏发或重发。
+V2-001 已让飞书和本地入口先按 `platform:message_id` 写入统一 Inbox，V2-002 又让审批和
+Provider 调用进入 durable Action 边界。尚未完成的是 transactional outbox：进程在“提交状态”
+和“发送消息”之间崩溃时仍可能漏发回复。
 
 V2 应实现：
 
@@ -560,7 +563,7 @@ flowchart TB
 | PR | 目标 | 验收 |
 | --- | --- | --- |
 | V2-001 ✅ | Ingress adapter + inbound dedupe | 同一飞书/本地 message 在重启与重试后只产生一次 route |
-| V2-002 | 移除产品路径内存审批 | `/approve` 操作 durable Approval，重启后仍存在 |
+| V2-002 ✅ | 移除产品路径内存审批 | `/approve` 操作 durable Approval，重启后仍存在 |
 | V2-003 | Thread update 与 confirmation | 补充、改目标、换方案、取消都有持久事件和正确语义 |
 
 ### Milestone B：Close / 完成交付闭环
@@ -693,5 +696,5 @@ V2 只有同时满足产品闭环和 Runtime 闭环才算完成。
 7. Self-loop 在 V2 只打开 ReviewCase 和 remediation proposal；
 8. 自动晋升与 L3 自治继续保持关闭，直到 Pilot 与独立评估门通过。
 
-工程实施已完成 `V2-001` 的分支级验收，下一切片是 `V2-002`；这七个切片完成后，
+工程实施已完成 `V2-001`、`V2-002` 的分支级验收，下一切片是 `V2-003`；这七个切片完成后，
 CoPenguin 才第一次拥有一个真实、持久、可验收的产品闭环。
