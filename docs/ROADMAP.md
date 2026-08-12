@@ -2,9 +2,12 @@
 
 ## Current decision
 
-The proposed V2 theme is **Trusted Closure**: make one real message become one
+The accepted V2 theme is **Trusted Closure**: make one real message become one
 isolated, recoverable, verifiable, and explicitly accepted Delivery before
 expanding autonomy.
+
+The accepted Alpha Golden Path is **Source to Inspectable Artifact**. This is a
+scope decision awaiting interview and Pilot evidence, not a validation result.
 
 - [V2 product and engineering direction](V2_PRODUCT_ENGINEERING_DIRECTION.md)
 - [V2 Runtime Contract](V2_RUNTIME_CONTRACT.md)
@@ -20,7 +23,8 @@ of available channels, tools, or model Providers.
 - [x] Prepare the four-week pilot protocol and decision gates
 - [x] Specify a consent-filtered Product Evidence event plane
 - [ ] Complete 12-15 qualified problem interviews
-- [ ] Select or reject the Source-to-Inspectable-Artifact Alpha workflow
+- [x] Select Source to Inspectable Artifact as the Alpha Golden Path
+- [ ] Confirm or falsify that workflow with interview and Pilot evidence
 - [ ] Reduce and privacy-review the Pilot event catalog
 - [ ] Run the four-week Pilot with 12 participants
 - [ ] Decide proceed, narrow, repeat, or stop

@@ -4,6 +4,10 @@ Status: hypotheses awaiting user research and a four-week pilot
 
 Evidence snapshot: 2026-08-12
 
+Product decision update: Trusted Closure is the V2 theme, and Source to
+Inspectable Artifact is the Alpha Golden Path. This selects what to build and
+measure first; it does not mark H1-H6 or the workflow itself as validated.
+
 ## Executive read
 
 CoPenguin has a credible runtime architecture, but the product mechanism is not

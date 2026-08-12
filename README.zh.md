@@ -139,7 +139,8 @@ flowchart LR
 
 ## V2 方向：Trusted Closure / 可信闭环
 
-第二版本不以扩大自治为起点，而是先把旧消息入口与耐久 Runtime 收敛成一条可验证的产品主链：
+V2 已确认采用 **Trusted Closure / 可信闭环**，不以扩大自治为起点，而是先把旧消息入口与
+耐久 Runtime 收敛成一条可验证的产品主链：
 
 ```text
 消息 -> 路由决定 -> TaskThread -> Run/Steps -> 经验证的 Delivery
@@ -149,6 +150,8 @@ flowchart LR
 详见 [产品与工程审计及 V2 方向](docs/V2_PRODUCT_ENGINEERING_DIRECTION.md) 和面向实现的
 [V2 Runtime Contract](docs/V2_RUNTIME_CONTRACT.md)。其中包括当前问题清单、产品控制面、
 Hook/self-loop 边界、按顺序拆分的 PR 与 Definition of Done。
+**Source to Inspectable Artifact** 已确认为 Alpha 主路径；这是产品范围决定，不代表该工作流
+已经通过用户 Pilot 验证。
 
 ## 稳定能力与原型边界
 

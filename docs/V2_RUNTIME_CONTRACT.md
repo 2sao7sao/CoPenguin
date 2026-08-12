@@ -1,10 +1,14 @@
 # CoPenguin V2 Runtime Contract
 
-Status: proposed
+Status: implementation proposal under the accepted V2 product direction
 
-Theme: Trusted Closure
+Accepted product theme: Trusted Closure
 
-This document turns the V2 direction into implementation constraints. It does
+Accepted Alpha Golden Path: Source to Inspectable Artifact
+
+This document turns the accepted V2 direction into proposed implementation
+constraints. The implementation order and individual contracts remain
+reviewable. It does
 not authorize autonomous promotion or broaden the current side-effect policy.
 
 ## 1. Required invariants

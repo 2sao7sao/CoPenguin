@@ -1,10 +1,23 @@
 # CoPenguin V2 产品与工程优化方向
 
-状态：提案，等待评审后进入实现
+状态：产品方向已确认；工程实施顺序待确认
 
 版本主题：**Trusted Closure / 可信闭环**
 
 审计日期：2026-08-12
+
+决策日期：2026-08-12
+
+已确认：
+
+- V2 采用 **Trusted Closure / 可信闭环**；
+- **Source to Inspectable Artifact** 作为 Alpha 主路径。
+
+待确认：
+
+- 是否按 `V2-001 -> V2-007` 的顺序启动工程实现。
+
+这里的“Alpha 主路径”是产品范围决定，不代表用户需求、重复委托或留存假设已经通过验证。
 
 ## 0. 结论先行
 
@@ -91,7 +104,7 @@ V2 决策：所有本地与飞书消息必须先进入同一个 `Ingress -> Inbo
 “跨生活和工作的通用助理”是长期愿景，不是 V2 的激活场景。当前同时列出项目恢复、
 source-to-artifact 和周复盘三类 Pilot 工作流，但没有一个被指定为默认 Golden Path。
 
-V2 建议默认选择：**Source to Inspectable Artifact**。
+V2 Alpha 已确认选择：**Source to Inspectable Artifact**。
 
 示例：
 
@@ -661,12 +674,15 @@ V2 只有同时满足产品闭环和 Runtime 闭环才算完成。
 
 此前提供的 X 链接仍无法稳定读取，因此不作为本提案的事实证据。
 
-## 12. 建议决策
+## 12. 决策状态
 
-建议批准以下产品和工程决策：
+已确认：
 
 1. 将 V2 主题定为 **Trusted Closure**，而不是 Self-Evolution；
 2. 以 **Source to Inspectable Artifact** 作为 Alpha Golden Path；
+
+以下仍是待评审的工程和治理建议：
+
 3. 优先完成真实入口、持久审批、Worker/Step/Delivery 和用户交付决定；
 4. 用轻量本地 Control Room 管理 TaskThreads、Attention 与 Artifacts；
 5. 采用“规范化 Memory Claim + 多维 facet”的记忆模型；
@@ -674,5 +690,5 @@ V2 只有同时满足产品闭环和 Runtime 闭环才算完成。
 7. Self-loop 在 V2 只打开 ReviewCase 和 remediation proposal；
 8. 自动晋升与 L3 自治继续保持关闭，直到 Pilot 与独立评估门通过。
 
-若这些决策通过，实施应从 `V2-001 -> V2-007` 开始；这七个切片完成后，CoPenguin 才第一次
-拥有一个真实、持久、可验收的产品闭环。
+工程顺序获得确认后，实施从 `V2-001 -> V2-007` 开始；这七个切片完成后，CoPenguin 才
+第一次拥有一个真实、持久、可验收的产品闭环。

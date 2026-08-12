@@ -145,7 +145,7 @@ skills, hooks, or permissions.
 
 ## V2 Direction: Trusted Closure
 
-The proposed second version does not start with broader autonomy. It first
+V2 adopts **Trusted Closure** and does not start with broader autonomy. It first
 converges the legacy message path and the durable Runtime into one testable
 product loop:
 
@@ -158,6 +158,8 @@ Read the [product and engineering review](docs/V2_PRODUCT_ENGINEERING_DIRECTION.
 and the implementation-facing [V2 Runtime Contract](docs/V2_RUNTIME_CONTRACT.md).
 The proposal includes the current problem inventory, target product surface,
 Hook and self-loop boundaries, ordered PR slices, and Definition of Done.
+**Source to Inspectable Artifact** is the confirmed Alpha Golden Path; this is
+a product-scope decision, not yet evidence that the workflow has passed the Pilot.
 
 ## Stable vs Prototype
 
