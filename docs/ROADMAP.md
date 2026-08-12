@@ -15,6 +15,7 @@ own acceptance criteria before the next slice begins.
 
 - [V2 product and engineering direction](V2_PRODUCT_ENGINEERING_DIRECTION.md)
 - [V2 Runtime Contract](V2_RUNTIME_CONTRACT.md)
+- [Feishu Memory and Knowledge System v0.1](FEISHU_KNOWLEDGE_SYSTEM_SPEC_V0.1.md)
 
 The implementation order is determined by the product loop, not by the number
 of available channels, tools, or model Providers.
@@ -52,11 +53,16 @@ Exit: every real message uses the same state and governance boundary.
 ## V2-B: Close the execution and Delivery loop
 
 - [ ] Implement a bounded Worker Host and Executor Protocol
+- [ ] Implement the first bounded recipe: one explicitly selected Feishu source
+      to one inspectable Project Decision Record
 - [ ] Add Step lifecycle, budgets, cancellation, checkpoint, and tool/model trace
-- [ ] Add Verifier Registry and versioned VerifierResult Artifacts
+- [ ] Add Verifier Registry and a versioned DecisionRecordVerifier result for
+      evidence, citation, permission, sensitivity, freshness, and actionability
 - [ ] Atomically finalize scheduler, Run, Thread, Delivery, Attention, and Outbox
 - [ ] Persist `accept`, `revise`, `reject`, `defer`, and `take over` decisions
 - [ ] Create a new immutable Run/Delivery version after a revision request
+- [ ] Publish an accepted record to a Feishu Wiki draft only through durable
+      Approval and `Intent -> Claim -> provider -> Receipt`
 
 Exit: one Source-to-Artifact task survives restart and reaches an explicit user
 decision with a complete causal trace.
@@ -78,6 +84,8 @@ SQLite tables.
 - [ ] Bind MemorySelectionManifest, KB, Skill, Hook, Permission, Verifier, and
       Provider snapshots to each Run
 - [ ] Expose Memory candidate review, correction, rejection, expiry, and forget
+- [ ] Keep Feishu source capture, private-memory promotion, EvolveKB promotion,
+      and Feishu publication as four independently reviewable decisions
 - [ ] Implement a versioned Hook Registry with timeouts and failure policy
 - [ ] Implement an event-derived Observation Monitor
 - [ ] Open ReviewCases and remediation proposals with evidence and cooldown

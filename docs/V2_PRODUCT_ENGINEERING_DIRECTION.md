@@ -572,6 +572,12 @@ flowchart TB
 | V2-006 | 原子 `finalize_run` | scheduler、Run、Thread、Delivery、Attention 和 outbox 无分裂终态 |
 | V2-007 | Delivery decision | accept/revise/reject/defer/takeover 可持久、可 replay；revise 创建新 Run |
 
+首个 workflow 已收敛为“一个明确选择的飞书来源 → 可检查的项目决策记录”。V2-005 对应的
+首个 Verifier 必须检查 evidence、citation、permission、sensitivity、freshness 与 actionability；
+V2-007 接受后仍需 durable Approval，才能通过 `Intent -> Claim -> provider -> Receipt` 发布到
+飞书 Wiki 草稿目录。完整边界见
+[飞书记忆与知识系统规格 v0.1](FEISHU_KNOWLEDGE_SYSTEM_SPEC_V0.1.md)。
+
 ### Milestone C：Control / 让用户可管理
 
 | PR | 目标 | 验收 |

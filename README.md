@@ -168,6 +168,10 @@ The proposal includes the current problem inventory, target product surface,
 Hook and self-loop boundaries, ordered PR slices, and Definition of Done.
 **Source to Inspectable Artifact** is the confirmed Alpha Golden Path; this is
 a product-scope decision, not yet evidence that the workflow has passed the Pilot.
+The first concrete recipe is specified in the
+[Feishu Memory and Knowledge System v0.1](docs/FEISHU_KNOWLEDGE_SYSTEM_SPEC_V0.1.md):
+an explicitly selected Feishu source becomes a verified Project Decision Record,
+then an accepted Delivery can be published to a Wiki draft through durable approval.
 The first implementation slice, [V2-001 Unified Ingress](docs/V2_001_UNIFIED_INGRESS.md),
 has passed its branch-level acceptance tests.
 
