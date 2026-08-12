@@ -24,6 +24,7 @@ class Settings:
     host: str = "127.0.0.1"
     port: int = 8787
     data_dir: Path = Path(".copenguin")
+    default_project_id: str = "personal"
 
     feishu_app_id: str = ""
     feishu_app_secret: str = ""
@@ -67,6 +68,7 @@ class Settings:
             host=env.get("HOST", "127.0.0.1"),
             port=int(env.get("PORT", "8787")),
             data_dir=data_dir,
+            default_project_id=env.get("COPENGUIN_DEFAULT_PROJECT_ID", "personal"),
             feishu_app_id=env.get("FEISHU_APP_ID", ""),
             feishu_app_secret=env.get("FEISHU_APP_SECRET", ""),
             feishu_bot_open_id=env.get("FEISHU_BOT_OPEN_ID", ""),

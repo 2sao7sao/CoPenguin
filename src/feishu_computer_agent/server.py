@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+import ipaddress
 from datetime import UTC, datetime
 
 from fastapi import FastAPI, HTTPException, Request
+from pydantic import BaseModel, Field
 
 from super_agent_runtime import (
     ActionStatus,
     AgentSnapshot,
     ApprovalState,
     ArtifactCAS,
+    IdempotencyConflict,
     InboxCoordinator,
     InboxRouteType,
+    IngressAdapter,
     NotFound,
     SnapshotStore,
     SQLiteRuntimeRepository,
@@ -24,6 +28,32 @@ from .feishu import FeishuEventParser, FeishuMessenger, FeishuPayloadError, Feis
 from .knowledge import build_knowledge_runtime
 from .memory import build_memory_runtime
 from .security import AccessController, ApprovalStore, RiskClassifier
+
+
+class LocalIngressRequest(BaseModel):
+    message_id: str
+    text: str
+    project_id: str | None = None
+    chat_id: str = "local"
+    actor_id: str = "owner"
+    current_thread_id: str | None = None
+    active_thread_ids: tuple[str, ...] = ()
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+def _timestamp(value: datetime) -> str:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.astimezone(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
+def _is_loopback(request: Request) -> bool:
+    if request.client is None:
+        return False
+    try:
+        return ipaddress.ip_address(request.client.host).is_loopback
+    except ValueError:
+        return False
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -51,8 +81,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         repository=runtime,
         artifacts=artifacts,
         snapshots=snapshots,
-        threads=threads,
         agent_snapshot_id=default_agent_snapshot.artifact_id,
+    )
+    feishu_ingress = IngressAdapter(
+        platform="feishu",
+        coordinator=inbox,
+        default_project_id=settings.default_project_id,
+    )
+    local_ingress = IngressAdapter(
+        platform="local",
+        coordinator=inbox,
+        default_project_id=settings.default_project_id,
     )
     agent = PrivateAssistantAgent(
         memory=memory,
@@ -66,6 +105,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         parser=FeishuEventParser(settings),
         access=AccessController(settings),
         agent=agent,
+        ingress=feishu_ingress,
         messenger=FeishuMessenger(settings),
     )
 
@@ -78,6 +118,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.snapshots = snapshots
     app.state.threads = threads
     app.state.inbox = inbox
+    app.state.feishu_ingress = feishu_ingress
+    app.state.local_ingress = local_ingress
     app.state.default_agent_snapshot = default_agent_snapshot
 
     @app.get("/healthz")
@@ -136,15 +178,45 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def runtime_inbox(
         route_type: InboxRouteType | None = None,
         thread_id: str | None = None,
+        project_id: str | None = None,
         limit: int = 100,
     ) -> dict[str, object]:
         safe_limit = max(1, min(limit, 500))
         records = runtime.list_inbox_records(
             route_type=route_type,
             thread_id=thread_id,
+            project_id=project_id,
             limit=safe_limit,
         )
         return {"messages": [record.as_dict() for record in records]}
+
+    @app.post("/runtime/inbox")
+    async def runtime_accept_inbox(
+        payload: LocalIngressRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        if not _is_loopback(request):
+            raise HTTPException(status_code=403, detail="local ingress requires a loopback client")
+        try:
+            result = local_ingress.receive(
+                message_id=payload.message_id,
+                chat_id=payload.chat_id,
+                actor_id=payload.actor_id,
+                text=payload.text,
+                created_at=_timestamp(payload.created_at),
+                project_id=payload.project_id,
+                current_thread_id=payload.current_thread_id,
+                active_thread_ids=payload.active_thread_ids,
+            )
+        except IdempotencyConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            "accepted_new": result.accepted_new,
+            "duplicate": result.duplicate,
+            "message": result.record.as_dict(),
+        }
 
     @app.get("/runtime/approvals")
     async def runtime_approvals(
@@ -170,7 +242,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if not isinstance(payload, dict):
                 raise FeishuPayloadError("Expected a JSON object.")
             return await service.handle_payload(payload)
+        except IdempotencyConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except FeishuPayloadError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return app

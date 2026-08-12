@@ -72,6 +72,14 @@ export COMPUTER_PROVIDER=dry-run
 copenguin local "/computer open calendar and summarize tomorrow"
 ```
 
+Local messages now enter the durable Inbox first. Supply a stable ID only when
+you deliberately want to retry the same channel message:
+
+```bash
+copenguin local "/task turn these sources into a reviewable brief" \
+  --project work --message-id demo-source-1
+```
+
 Run the Feishu webhook service:
 
 ```bash
@@ -160,6 +168,8 @@ The proposal includes the current problem inventory, target product surface,
 Hook and self-loop boundaries, ordered PR slices, and Definition of Done.
 **Source to Inspectable Artifact** is the confirmed Alpha Golden Path; this is
 a product-scope decision, not yet evidence that the workflow has passed the Pilot.
+The first implementation slice, [V2-001 Unified Ingress](docs/V2_001_UNIFIED_INGRESS.md),
+has passed its branch-level acceptance tests.
 
 ## Stable vs Prototype
 
@@ -168,13 +178,16 @@ a product-scope decision, not yet evidence that the workflow has passed the Pilo
 - deterministic Thread/Run replay and optimistic revision checks;
 - SQLite event journal plus disposable read projections;
 - durable scheduling, lease fencing, resource conflicts, and checkpoint recovery;
-- conservative inbox routing and persistent route records;
+- Feishu/local unified ingress, restart-safe inbound dedupe, normalized message
+  Artifacts, and conservative persistent route decisions;
 - durable Action Intents, Receipts, approvals, expiry, and reconciliation;
 - Feishu parsing, owner allowlist, text approval commands, `dry-run`, and opt-in allowlisted `local-shell`.
 
 ### Deliberately incomplete
 
-- the legacy `/computer` and Feishu message path is not yet bound end-to-end to `InboxCoordinator`;
+- first-seen messages still pass from durable Ingress to the compatibility
+  assistant; V2-002 removes its in-memory approval path;
+- outbound response delivery is not transactional until the Outbox slice;
 - Step/verifier/Delivery events and atomic terminal completion are next runtime slices;
 - interactive Feishu cards, long-connection mode, and a real computer-use provider are not shipped;
 - Product Evidence is specified but not an operational validation result;

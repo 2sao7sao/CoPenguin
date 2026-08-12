@@ -1,6 +1,6 @@
 # CoPenguin V2 产品与工程优化方向
 
-状态：产品方向与 `V2-001 -> V2-007` 工程实施顺序已确认；V2-001 已启动
+状态：产品方向与 `V2-001 -> V2-007` 工程实施顺序已确认；V2-001 已完成分支验收
 
 版本主题：**Trusted Closure / 可信闭环**
 
@@ -559,7 +559,7 @@ flowchart TB
 
 | PR | 目标 | 验收 |
 | --- | --- | --- |
-| V2-001 | Ingress adapter + inbound dedupe | 同一飞书/本地 message 在重启与重试后只产生一次 route |
+| V2-001 ✅ | Ingress adapter + inbound dedupe | 同一飞书/本地 message 在重启与重试后只产生一次 route |
 | V2-002 | 移除产品路径内存审批 | `/approve` 操作 durable Approval，重启后仍存在 |
 | V2-003 | Thread update 与 confirmation | 补充、改目标、换方案、取消都有持久事件和正确语义 |
 
@@ -687,5 +687,5 @@ V2 只有同时满足产品闭环和 Runtime 闭环才算完成。
 7. Self-loop 在 V2 只打开 ReviewCase 和 remediation proposal；
 8. 自动晋升与 L3 自治继续保持关闭，直到 Pilot 与独立评估门通过。
 
-工程实施已从 `V2-001` 开始，并按 `V2-001 -> V2-007` 顺序推进；这七个切片完成后，
+工程实施已完成 `V2-001` 的分支级验收，下一切片是 `V2-002`；这七个切片完成后，
 CoPenguin 才第一次拥有一个真实、持久、可验收的产品闭环。

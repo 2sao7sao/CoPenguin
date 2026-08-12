@@ -31,6 +31,7 @@ from .models import (
     EventDraft,
     EventEnvelope,
     InboxRecord,
+    InboxRouteState,
     InboxRouteType,
     JobState,
     ReceiptOutcome,
@@ -38,6 +39,7 @@ from .models import (
     RunProjection,
     RunState,
     SchedulerJob,
+    TaskSubmission,
     ThreadProjection,
     ThreadState,
     WorkerClaim,
@@ -221,12 +223,16 @@ class SQLiteRuntimeRepository:
 
                 CREATE TABLE IF NOT EXISTS inbox_messages (
                     message_key TEXT PRIMARY KEY,
+                    payload_hash TEXT NOT NULL,
                     platform TEXT NOT NULL,
                     message_id TEXT NOT NULL,
                     chat_id TEXT NOT NULL,
                     actor_id TEXT NOT NULL,
+                    project_id TEXT NOT NULL,
+                    message_artifact_id TEXT NOT NULL,
                     text_artifact_id TEXT NOT NULL,
                     route_type TEXT NOT NULL,
+                    route_state TEXT NOT NULL,
                     thread_id TEXT,
                     confidence REAL NOT NULL,
                     rationale TEXT NOT NULL,
@@ -270,6 +276,36 @@ class SQLiteRuntimeRepository:
                     "ALTER TABLE action_intents "
                     "ADD COLUMN requires_approval INTEGER NOT NULL DEFAULT 0"
                 )
+            inbox_columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(inbox_messages)").fetchall()
+            }
+            if "payload_hash" not in inbox_columns:
+                connection.execute(
+                    "ALTER TABLE inbox_messages ADD COLUMN payload_hash TEXT NOT NULL DEFAULT ''"
+                )
+            if "project_id" not in inbox_columns:
+                connection.execute(
+                    "ALTER TABLE inbox_messages ADD COLUMN project_id TEXT NOT NULL DEFAULT ''"
+                )
+            if "route_state" not in inbox_columns:
+                connection.execute(
+                    "ALTER TABLE inbox_messages "
+                    "ADD COLUMN route_state TEXT NOT NULL DEFAULT 'confirmed'"
+                )
+                connection.execute(
+                    "UPDATE inbox_messages SET route_state = 'proposed' "
+                    "WHERE requires_confirmation = 1"
+                )
+            if "message_artifact_id" not in inbox_columns:
+                connection.execute(
+                    "ALTER TABLE inbox_messages "
+                    "ADD COLUMN message_artifact_id TEXT NOT NULL DEFAULT ''"
+                )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_inbox_project "
+                "ON inbox_messages(project_id, created_at)"
+            )
             connection.execute(
                 "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
                 (1, to_timestamp(self._clock())),
@@ -285,6 +321,10 @@ class SQLiteRuntimeRepository:
             connection.execute(
                 "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
                 (4, to_timestamp(self._clock())),
+            )
+            connection.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                (5, to_timestamp(self._clock())),
             )
 
     # ------------------------------------------------------------------
@@ -342,159 +382,191 @@ class SQLiteRuntimeRepository:
         context_manifest_id: str | None = None,
     ) -> ThreadProjection:
         """Atomically create a Thread, its first Run, and its scheduler job."""
-        snapshot_ids = (task_snapshot_id, agent_snapshot_id, context_manifest_id)
+        submission = TaskSubmission(
+            project_id=project_id,
+            title=title,
+            thread_id=thread_id,
+            run_id=run_id,
+            branch_id=branch_id,
+            actor=actor,
+            correlation_id=correlation_id,
+            metadata=metadata or {},
+            priority=priority,
+            max_attempts=max_attempts,
+            task_snapshot_id=task_snapshot_id,
+            agent_snapshot_id=agent_snapshot_id,
+            context_manifest_id=context_manifest_id,
+        )
+        with self._transaction() as connection:
+            return self._submit_task_in_transaction(
+                connection,
+                submission,
+                now=to_timestamp(self._clock()),
+            )
+
+    def _submit_task_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        submission: TaskSubmission,
+        *,
+        now: str,
+    ) -> ThreadProjection:
+        snapshot_ids = (
+            submission.task_snapshot_id,
+            submission.agent_snapshot_id,
+            submission.context_manifest_id,
+        )
         if any(snapshot_ids) and not all(snapshot_ids):
             raise ValueError("task, agent, and context snapshot ids must be provided together")
-        now = to_timestamp(self._clock())
-        with self._transaction() as connection:
-            existing = self._get_thread_in_transaction(connection, thread_id)
-            if existing is not None:
-                run = existing.run(run_id)
-                if (
-                    existing.project_id == project_id
-                    and existing.title == title
-                    and run is not None
-                ):
-                    return existing
-                raise IdempotencyConflict(
-                    f"thread id {thread_id} was reused for a different task submission"
-                )
 
-            drafts = [
+        existing = self._get_thread_in_transaction(connection, submission.thread_id)
+        if existing is not None:
+            run = existing.run(submission.run_id)
+            if (
+                existing.project_id == submission.project_id
+                and existing.title == submission.title
+                and run is not None
+            ):
+                return existing
+            raise IdempotencyConflict(
+                f"thread id {submission.thread_id} was reused for a different task submission"
+            )
+
+        drafts = [
+            EventDraft(
+                stream_type="thread",
+                stream_id=submission.thread_id,
+                project_id=submission.project_id,
+                thread_id=submission.thread_id,
+                branch_id=submission.branch_id,
+                correlation_id=submission.correlation_id,
+                event_type="thread.created",
+                actor=submission.actor,
+                occurred_at=now,
+                payload={
+                    "project_id": submission.project_id,
+                    "title": submission.title,
+                    "branch_id": submission.branch_id,
+                    "metadata": dict(submission.metadata),
+                },
+            ),
+            EventDraft(
+                stream_type="thread",
+                stream_id=submission.thread_id,
+                project_id=submission.project_id,
+                thread_id=submission.thread_id,
+                branch_id=submission.branch_id,
+                run_id=submission.run_id,
+                correlation_id=submission.correlation_id,
+                event_type="run.created",
+                actor=submission.actor,
+                occurred_at=now,
+                payload={"run_id": submission.run_id, "branch_id": submission.branch_id},
+            ),
+        ]
+        if all(snapshot_ids):
+            drafts.append(
                 EventDraft(
                     stream_type="thread",
-                    stream_id=thread_id,
-                    project_id=project_id,
-                    thread_id=thread_id,
-                    branch_id=branch_id,
-                    correlation_id=correlation_id,
-                    event_type="thread.created",
-                    actor=actor,
+                    stream_id=submission.thread_id,
+                    project_id=submission.project_id,
+                    thread_id=submission.thread_id,
+                    branch_id=submission.branch_id,
+                    run_id=submission.run_id,
+                    correlation_id=submission.correlation_id,
+                    event_type="run.snapshots_bound",
+                    actor="context-compiler",
                     occurred_at=now,
                     payload={
-                        "project_id": project_id,
-                        "title": title,
-                        "branch_id": branch_id,
-                        "metadata": metadata or {},
+                        "run_id": submission.run_id,
+                        "task_snapshot_id": submission.task_snapshot_id,
+                        "agent_snapshot_id": submission.agent_snapshot_id,
+                        "context_manifest_id": submission.context_manifest_id,
                     },
-                ),
+                )
+            )
+        drafts.extend(
+            [
                 EventDraft(
                     stream_type="thread",
-                    stream_id=thread_id,
-                    project_id=project_id,
-                    thread_id=thread_id,
-                    branch_id=branch_id,
-                    run_id=run_id,
-                    correlation_id=correlation_id,
-                    event_type="run.created",
-                    actor=actor,
-                    occurred_at=now,
-                    payload={"run_id": run_id, "branch_id": branch_id},
-                ),
-            ]
-            if all(snapshot_ids):
-                drafts.append(
-                    EventDraft(
-                        stream_type="thread",
-                        stream_id=thread_id,
-                        project_id=project_id,
-                        thread_id=thread_id,
-                        branch_id=branch_id,
-                        run_id=run_id,
-                        correlation_id=correlation_id,
-                        event_type="run.snapshots_bound",
-                        actor="context-compiler",
-                        occurred_at=now,
-                        payload={
-                            "run_id": run_id,
-                            "task_snapshot_id": task_snapshot_id,
-                            "agent_snapshot_id": agent_snapshot_id,
-                            "context_manifest_id": context_manifest_id,
-                        },
-                    )
-                )
-            drafts.extend(
-                [
-                    EventDraft(
-                        stream_type="thread",
-                        stream_id=thread_id,
-                        project_id=project_id,
-                        thread_id=thread_id,
-                        branch_id=branch_id,
-                        run_id=run_id,
-                        correlation_id=correlation_id,
-                        event_type="run.state_changed",
-                        actor="scheduler",
-                        occurred_at=now,
-                        payload={
-                            "run_id": run_id,
-                            "from": RunState.CREATED.value,
-                            "to": RunState.QUEUED.value,
-                        },
-                    ),
-                    EventDraft(
-                        stream_type="thread",
-                        stream_id=thread_id,
-                        project_id=project_id,
-                        thread_id=thread_id,
-                        branch_id=branch_id,
-                        run_id=run_id,
-                        correlation_id=correlation_id,
-                        event_type="thread.state_changed",
-                        actor="scheduler",
-                        occurred_at=now,
-                        payload={
-                            "from": ThreadState.CREATED.value,
-                            "to": ThreadState.QUEUED.value,
-                        },
-                    ),
-                ]
-            )
-            projection: ThreadProjection | None = None
-            for draft in drafts:
-                event = self._insert_event(connection, draft)
-                projection = reduce_thread(projection, event)
-            assert projection is not None
-            self._upsert_thread_projection(connection, projection)
-            connection.execute(
-                """
-                INSERT INTO scheduler_jobs(
-                    run_id, thread_id, state, priority, available_at, attempts,
-                    max_attempts, fencing_token, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, 0, ?, 0, ?, ?)
-                """,
-                (
-                    run_id,
-                    thread_id,
-                    JobState.QUEUED.value,
-                    priority,
-                    now,
-                    max_attempts,
-                    now,
-                    now,
-                ),
-            )
-            self._insert_event(
-                connection,
-                EventDraft(
-                    stream_type="scheduler-run",
-                    stream_id=run_id,
-                    project_id=project_id,
-                    thread_id=thread_id,
-                    branch_id=branch_id,
-                    run_id=run_id,
-                    correlation_id=correlation_id,
-                    event_type="scheduler.run_enqueued",
+                    stream_id=submission.thread_id,
+                    project_id=submission.project_id,
+                    thread_id=submission.thread_id,
+                    branch_id=submission.branch_id,
+                    run_id=submission.run_id,
+                    correlation_id=submission.correlation_id,
+                    event_type="run.state_changed",
                     actor="scheduler",
                     occurred_at=now,
                     payload={
-                        "priority": priority,
-                        "available_at": now,
-                        "max_attempts": max_attempts,
+                        "run_id": submission.run_id,
+                        "from": RunState.CREATED.value,
+                        "to": RunState.QUEUED.value,
                     },
                 ),
-            )
-            return projection
+                EventDraft(
+                    stream_type="thread",
+                    stream_id=submission.thread_id,
+                    project_id=submission.project_id,
+                    thread_id=submission.thread_id,
+                    branch_id=submission.branch_id,
+                    run_id=submission.run_id,
+                    correlation_id=submission.correlation_id,
+                    event_type="thread.state_changed",
+                    actor="scheduler",
+                    occurred_at=now,
+                    payload={
+                        "from": ThreadState.CREATED.value,
+                        "to": ThreadState.QUEUED.value,
+                    },
+                ),
+            ]
+        )
+        projection: ThreadProjection | None = None
+        for draft in drafts:
+            event = self._insert_event(connection, draft)
+            projection = reduce_thread(projection, event)
+        assert projection is not None
+        self._upsert_thread_projection(connection, projection)
+        connection.execute(
+            """
+            INSERT INTO scheduler_jobs(
+                run_id, thread_id, state, priority, available_at, attempts,
+                max_attempts, fencing_token, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, 0, ?, 0, ?, ?)
+            """,
+            (
+                submission.run_id,
+                submission.thread_id,
+                JobState.QUEUED.value,
+                submission.priority,
+                now,
+                submission.max_attempts,
+                now,
+                now,
+            ),
+        )
+        self._insert_event(
+            connection,
+            EventDraft(
+                stream_type="scheduler-run",
+                stream_id=submission.run_id,
+                project_id=submission.project_id,
+                thread_id=submission.thread_id,
+                branch_id=submission.branch_id,
+                run_id=submission.run_id,
+                correlation_id=submission.correlation_id,
+                event_type="scheduler.run_enqueued",
+                actor="scheduler",
+                occurred_at=now,
+                payload={
+                    "priority": submission.priority,
+                    "available_at": now,
+                    "max_attempts": submission.max_attempts,
+                },
+            ),
+        )
+        return projection
 
     def append_thread_event(
         self,
@@ -1445,9 +1517,37 @@ class SQLiteRuntimeRepository:
     # Unified Inbox routing journal
     # ------------------------------------------------------------------
 
-    def record_inbox_route(self, record: InboxRecord) -> InboxRecord:
+    def find_inbox_record(self, message_key: str) -> InboxRecord | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM inbox_messages WHERE message_key = ?",
+                (message_key,),
+            ).fetchone()
+        return self._row_to_inbox_record(row) if row is not None else None
+
+    def accept_inbox_route(
+        self,
+        record: InboxRecord,
+        *,
+        task_submission: TaskSubmission | None = None,
+    ) -> tuple[InboxRecord, bool]:
+        """Atomically persist one inbound route and its optional first Task submission."""
         if not record.text_artifact_id.startswith("artifact:sha256:"):
             raise ValueError("text_artifact_id must be an Artifact CAS reference")
+        if not record.message_artifact_id.startswith("artifact:sha256:"):
+            raise ValueError("message_artifact_id must be an Artifact CAS reference")
+        if task_submission is not None:
+            if record.route_type != InboxRouteType.NEW_TASK:
+                raise ValueError("only a new-task route may include a Task submission")
+            if record.route_state != InboxRouteState.CONFIRMED:
+                raise ValueError("a Task submission requires a confirmed route")
+            if record.thread_id != task_submission.thread_id:
+                raise ValueError("inbox route and Task submission must target the same thread")
+            if record.project_id != task_submission.project_id:
+                raise ValueError("inbox route and Task submission must target the same project")
+            if task_submission.correlation_id != record.message_key:
+                raise ValueError("Task submission correlation must use the inbound message key")
+
         with self._transaction() as connection:
             existing = connection.execute(
                 "SELECT * FROM inbox_messages WHERE message_key = ?",
@@ -1455,27 +1555,30 @@ class SQLiteRuntimeRepository:
             ).fetchone()
             if existing is not None:
                 stored = self._row_to_inbox_record(existing)
-                if canonical_json(stored.as_dict()) != canonical_json(record.as_dict()):
-                    raise IdempotencyConflict(
-                        f"inbox message key was reused with a different route: {record.message_key}"
-                    )
-                return stored
+                self._assert_same_inbound(record, stored)
+                return stored, False
+
             connection.execute(
                 """
                 INSERT INTO inbox_messages(
-                    message_key, platform, message_id, chat_id, actor_id,
-                    text_artifact_id, route_type, thread_id, confidence, rationale,
-                    domain, requires_confirmation, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    message_key, payload_hash, platform, message_id, chat_id, actor_id,
+                    project_id, message_artifact_id, text_artifact_id, route_type,
+                    route_state, thread_id,
+                    confidence, rationale, domain, requires_confirmation, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.message_key,
+                    record.payload_hash,
                     record.platform,
                     record.message_id,
                     record.chat_id,
                     record.actor_id,
+                    record.project_id,
+                    record.message_artifact_id,
                     record.text_artifact_id,
                     record.route_type.value,
+                    record.route_state.value,
                     record.thread_id,
                     record.confidence,
                     record.rationale,
@@ -1484,19 +1587,42 @@ class SQLiteRuntimeRepository:
                     record.created_at,
                 ),
             )
-            self._insert_event(
+            received = self._insert_event(
+                connection,
+                EventDraft(
+                    stream_type="conversation",
+                    stream_id=f"{record.platform}:{record.chat_id}",
+                    project_id=record.project_id,
+                    correlation_id=record.message_key,
+                    event_type="conversation.message_received",
+                    actor=record.actor_id,
+                    occurred_at=record.created_at,
+                    payload={
+                        "message_key": record.message_key,
+                        "payload_hash": record.payload_hash,
+                        "message_artifact_id": record.message_artifact_id,
+                        "text_artifact_id": record.text_artifact_id,
+                        "platform": record.platform,
+                        "message_id": record.message_id,
+                        "chat_id": record.chat_id,
+                    },
+                ),
+            )
+            proposed = self._insert_event(
                 connection,
                 EventDraft(
                     stream_type="inbox",
                     stream_id=record.message_key,
+                    project_id=record.project_id,
                     thread_id=record.thread_id,
                     correlation_id=record.message_key,
-                    event_type="inbox.message_routed",
+                    causation_id=received.event_id,
+                    event_type="inbox.route_proposed",
                     actor="inbox-router",
                     occurred_at=record.created_at,
                     payload={
-                        "text_artifact_id": record.text_artifact_id,
                         "route_type": record.route_type.value,
+                        "route_state": record.route_state.value,
                         "thread_id": record.thread_id,
                         "confidence": record.confidence,
                         "rationale": record.rationale,
@@ -1505,13 +1631,67 @@ class SQLiteRuntimeRepository:
                     },
                 ),
             )
-            return record
+            if record.route_state == InboxRouteState.CONFIRMED:
+                self._insert_event(
+                    connection,
+                    EventDraft(
+                        stream_type="inbox",
+                        stream_id=record.message_key,
+                        project_id=record.project_id,
+                        thread_id=record.thread_id,
+                        correlation_id=record.message_key,
+                        causation_id=proposed.event_id,
+                        event_type="inbox.route_confirmed",
+                        actor="inbox-policy",
+                        occurred_at=record.created_at,
+                        payload={
+                            "route_type": record.route_type.value,
+                            "thread_id": record.thread_id,
+                            "reason": "deterministic-policy-threshold",
+                        },
+                    ),
+                )
+            if task_submission is not None:
+                self._submit_task_in_transaction(
+                    connection,
+                    task_submission,
+                    now=to_timestamp(self._clock()),
+                )
+            return record, True
+
+    def record_inbox_route(self, record: InboxRecord) -> InboxRecord:
+        stored, _ = self.accept_inbox_route(record)
+        return stored
+
+    def _assert_same_inbound(self, candidate: InboxRecord, stored: InboxRecord) -> None:
+        stable_candidate = (
+            candidate.platform,
+            candidate.message_id,
+            candidate.chat_id,
+            candidate.actor_id,
+            candidate.text_artifact_id,
+        )
+        stable_stored = (
+            stored.platform,
+            stored.message_id,
+            stored.chat_id,
+            stored.actor_id,
+            stored.text_artifact_id,
+        )
+        payload_conflict = bool(stored.payload_hash) and (
+            stored.payload_hash != candidate.payload_hash
+        )
+        if payload_conflict or stable_candidate != stable_stored:
+            raise IdempotencyConflict(
+                f"inbox message key was reused with a different payload: {candidate.message_key}"
+            )
 
     def list_inbox_records(
         self,
         *,
         route_type: InboxRouteType | None = None,
         thread_id: str | None = None,
+        project_id: str | None = None,
         limit: int = 100,
     ) -> list[InboxRecord]:
         clauses: list[str] = []
@@ -1522,6 +1702,9 @@ class SQLiteRuntimeRepository:
         if thread_id is not None:
             clauses.append("thread_id = ?")
             values.append(thread_id)
+        if project_id is not None:
+            clauses.append("project_id = ?")
+            values.append(project_id)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         values.append(limit)
         with self._connect() as connection:
@@ -2515,12 +2698,20 @@ class SQLiteRuntimeRepository:
     def _row_to_inbox_record(self, row: sqlite3.Row) -> InboxRecord:
         return InboxRecord(
             message_key=str(row["message_key"]),
+            payload_hash=str(row["payload_hash"]),
             platform=str(row["platform"]),
             message_id=str(row["message_id"]),
             chat_id=str(row["chat_id"]),
             actor_id=str(row["actor_id"]),
+            project_id=str(row["project_id"]),
+            message_artifact_id=(
+                str(row["message_artifact_id"])
+                if row["message_artifact_id"]
+                else str(row["text_artifact_id"])
+            ),
             text_artifact_id=str(row["text_artifact_id"]),
             route_type=InboxRouteType(str(row["route_type"])),
+            route_state=InboxRouteState(str(row["route_state"])),
             thread_id=row["thread_id"],
             confidence=float(row["confidence"]),
             rationale=str(row["rationale"]),

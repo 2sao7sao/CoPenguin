@@ -72,8 +72,10 @@ from being claimed at the same time.
 - atomic Task submission that creates Thread, Run, snapshot bindings, and the
   scheduler job in one transaction;
 - Thread Coordinator claim/start and fenced checkpoint recovery;
-- conservative Inbox routing between ordinary chat, a new Task, an existing
-  TaskThread, control commands, and ambiguous messages requiring confirmation;
+- a unified Feishu/local Ingress boundary with durable message identity,
+  restart-safe dedupe, normalized message Artifacts, and conservative routing
+  between ordinary chat, a new Task, an existing TaskThread, control commands,
+  and ambiguous messages requiring confirmation;
 - durable action Intent/Receipt records with execution fencing and crash
   reconciliation;
 - persistent approval decisions and expiry linked to Action Intent, with
@@ -141,16 +143,17 @@ Intent creation, external execution, Receipt recording, and verification.
 
 1. Complete problem interviews and select the narrow pilot workflow. Continue
    Runtime work only where it supports pilot safety, delivery, or measurement.
-2. Bind the Feishu and local message ingress to `InboxCoordinator`; the router
-   currently has a durable service boundary but the legacy `/computer` path
-   still executes through the original MVP agent.
-3. Complete the worker lifecycle with Step events, heartbeat, verifier,
+2. Replace the compatibility assistant's in-memory approval path with durable
+   Runtime Approval and Intent handling (V2-002).
+3. Apply Thread updates, cancellation, and route confirmation semantics
+   durably (V2-003).
+4. Complete the worker lifecycle with Step events, heartbeat, verifier,
    Delivery, and atomic scheduler/Run completion.
-4. Add a versioned Hook Registry for pre-route, pre-context, pre-action,
+5. Add a versioned Hook Registry for pre-route, pre-context, pre-action,
    post-action, verifier, and exception hooks. Hooks may advise or block but may
    not mutate durable state outside an Intent.
-5. Add a self-loop monitor that derives observations from events, detects
+6. Add a self-loop monitor that derives observations from events, detects
    stalls/repeated corrections/policy violations, and opens reviewable
    remediation Tasks.
-6. Only after product and runtime gates pass, add candidate, independent evaluation,
+7. Only after product and runtime gates pass, add candidate, independent evaluation,
    shadow execution, pointer promotion, monitoring, and rollback.

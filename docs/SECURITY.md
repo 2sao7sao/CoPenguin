@@ -10,6 +10,8 @@ This project treats Feishu messages as untrusted remote input.
 - The default computer provider is `dry-run`.
 - The shell provider is disabled unless `LOCAL_SHELL_ENABLED=1`.
 - The shell provider only runs executables listed in `LOCAL_SHELL_ALLOWLIST`.
+- The local Inbox write endpoint accepts loopback clients only; remote channel
+  input must pass its channel authentication boundary first.
 
 ## Approval Flow
 

@@ -96,3 +96,42 @@ def test_runtime_inbox_and_approval_projection_endpoints(tmp_path) -> None:
 
     assert inbox_response.json()["messages"][0]["thread_id"] == thread.thread_id
     assert approval_response.json()["approvals"][0]["approval_id"] == approval.approval_id
+
+
+def test_local_ingress_endpoint_deduplicates_retries(tmp_path) -> None:
+    app = create_app(Settings(data_dir=tmp_path, memory_enabled=False, knowledge_enabled=False))
+    client = TestClient(app, client=("127.0.0.1", 50000))
+    payload = {
+        "message_id": "local-ui-1",
+        "chat_id": "control-room",
+        "actor_id": "owner",
+        "project_id": "work",
+        "text": "/task 从这些资料生成一份可检查报告",
+        "created_at": "2026-08-13T08:00:00Z",
+    }
+
+    first = client.post("/runtime/inbox", json=payload)
+    retry = client.post("/runtime/inbox", json=payload)
+
+    assert first.status_code == 200
+    assert retry.status_code == 200
+    assert first.json()["accepted_new"] is True
+    assert retry.json()["duplicate"] is True
+    assert retry.json()["message"] == first.json()["message"]
+    assert retry.json()["message"]["project_id"] == "work"
+    assert retry.json()["message"]["route_state"] == "confirmed"
+    assert len(app.state.runtime.list_inbox_records()) == 1
+    assert len(app.state.runtime.list_threads()) == 1
+
+
+def test_local_ingress_endpoint_rejects_non_loopback_clients(tmp_path) -> None:
+    app = create_app(Settings(data_dir=tmp_path, memory_enabled=False, knowledge_enabled=False))
+    client = TestClient(app, client=("203.0.113.9", 50000))
+
+    response = client.post(
+        "/runtime/inbox",
+        json={"message_id": "remote-1", "text": "/task should not be accepted"},
+    )
+
+    assert response.status_code == 403
+    assert app.state.runtime.list_inbox_records() == []

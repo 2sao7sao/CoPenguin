@@ -148,9 +148,14 @@ Action stream:
 - `action.reconciliation_claimed`
 - `action.receipt_recorded`
 
-Inbox stream:
+Conversation and Inbox streams:
 
-- `inbox.message_routed`
+- `conversation.message_received`
+- `inbox.route_proposed`
+- `inbox.route_confirmed`
+
+`inbox.message_routed` is the v0.1 event name and is no longer emitted by the
+V2 unified ingress path.
 
 Approval stream:
 

@@ -9,9 +9,9 @@ expanding autonomy.
 The accepted Alpha Golden Path is **Source to Inspectable Artifact**. This is a
 scope decision awaiting interview and Pilot evidence, not a validation result.
 
-Engineering proceeds in the accepted `V2-001 -> V2-007` order. V2-001 is the
-active implementation slice; each slice must pass its own acceptance criteria
-before the next slice begins.
+Engineering proceeds in the accepted `V2-001 -> V2-007` order. V2-001 has met
+its branch-level acceptance criteria; V2-002 is next. Each slice must pass its
+own acceptance criteria before the next slice begins.
 
 - [V2 product and engineering direction](V2_PRODUCT_ENGINEERING_DIRECTION.md)
 - [V2 Runtime Contract](V2_RUNTIME_CONTRACT.md)
@@ -39,8 +39,9 @@ behavioral evidence.
 
 ## V2-A: Converge the real product path
 
-- [ ] Route Feishu, local UI, and CLI through one durable Ingress boundary
-- [ ] Add end-to-end inbound idempotency and outbound transactional Outbox
+- [x] Route Feishu, local UI, and CLI through one durable Ingress boundary
+- [x] Add end-to-end inbound idempotency before route or execution
+- [ ] Add outbound transactional Outbox
 - [ ] Replace the product-path in-memory approval queue with durable Approvals
 - [ ] Persist Thread updates, route corrections, confirmation, cancellation,
       and method-change Branch events

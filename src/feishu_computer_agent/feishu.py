@@ -8,6 +8,8 @@ from typing import Any, Protocol
 
 import httpx
 
+from super_agent_runtime import IngressAdapter
+
 from .agent import PrivateAssistantAgent
 from .config import Settings
 from .models import ChatType, InboundMessage
@@ -214,11 +216,13 @@ class FeishuWebhookService:
         parser: FeishuEventParser,
         access: AccessController,
         agent: PrivateAssistantAgent,
+        ingress: IngressAdapter,
         messenger: OutboundMessenger,
     ) -> None:
         self._parser = parser
         self._access = access
         self._agent = agent
+        self._ingress = ingress
         self._messenger = messenger
 
     async def handle_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -229,11 +233,32 @@ class FeishuWebhookService:
             return {"ok": True, "ignored": True}
         if not self._access.is_allowed(parsed):
             return {"ok": True, "ignored": True, "reason": "sender_not_allowed"}
+        ingress = self._ingress.receive(
+            message_id=parsed.message_id,
+            chat_id=parsed.chat_id,
+            actor_id=parsed.actor_id,
+            text=parsed.text,
+            created_at=parsed.created_at.astimezone(UTC)
+            .isoformat(timespec="microseconds")
+            .replace("+00:00", "Z"),
+        )
+        if ingress.duplicate:
+            return {
+                "ok": True,
+                "duplicate": True,
+                "message_key": ingress.record.message_key,
+                "route_type": ingress.record.route_type.value,
+                "thread_id": ingress.record.thread_id,
+            }
         reply = await self._agent.handle(parsed)
         if reply.text:
             await self._messenger.send_text(chat_id=parsed.chat_id, text=reply.text)
         return {
             "ok": True,
+            "duplicate": False,
+            "message_key": ingress.record.message_key,
+            "route_type": ingress.record.route_type.value,
+            "thread_id": ingress.record.thread_id,
             "intent": reply.intent.value,
             "requires_approval": reply.requires_approval,
         }

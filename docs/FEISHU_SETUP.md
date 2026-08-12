@@ -44,6 +44,10 @@ If you do not configure `FEISHU_ALLOWED_OPEN_IDS` or `FEISHU_ALLOWED_UNION_IDS`,
 
 For group chats, set `FEISHU_BOT_OPEN_ID` so mention gating can verify that the message mentioned this bot, not just any user.
 
+Accepted messages receive the durable identity `feishu:<message_id>` before the
+assistant handles them. A webhook retry, including one after restart, returns
+the stored route instead of invoking the assistant again.
+
 ## Commands In Feishu
 
 ```text

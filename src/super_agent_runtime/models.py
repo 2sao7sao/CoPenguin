@@ -120,6 +120,11 @@ class InboxRouteType(StrEnum):
     AMBIGUOUS = "ambiguous"
 
 
+class InboxRouteState(StrEnum):
+    PROPOSED = "proposed"
+    CONFIRMED = "confirmed"
+
+
 class ApprovalState(StrEnum):
     PENDING = "pending"
     APPROVED = "approved"
@@ -326,12 +331,16 @@ class ActionReceipt:
 @dataclass(frozen=True)
 class InboxRecord:
     message_key: str
+    payload_hash: str
     platform: str
     message_id: str
     chat_id: str
     actor_id: str
+    project_id: str
+    message_artifact_id: str
     text_artifact_id: str
     route_type: InboxRouteType
+    route_state: InboxRouteState
     confidence: float
     rationale: str
     domain: str
@@ -341,6 +350,23 @@ class InboxRecord:
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+@dataclass(frozen=True)
+class TaskSubmission:
+    project_id: str
+    title: str
+    thread_id: str
+    run_id: str
+    branch_id: str = "main"
+    actor: str = "inbox-router"
+    correlation_id: str | None = None
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+    priority: int = 0
+    max_attempts: int = 3
+    task_snapshot_id: str | None = None
+    agent_snapshot_id: str | None = None
+    context_manifest_id: str | None = None
 
 
 @dataclass(frozen=True)

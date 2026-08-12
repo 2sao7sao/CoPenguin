@@ -71,6 +71,13 @@ export COMPUTER_PROVIDER=dry-run
 copenguin local "/computer open calendar and summarize tomorrow"
 ```
 
+本地消息现在会先进入耐久 Inbox。只有在刻意重试同一条渠道消息时才需要提供稳定 ID：
+
+```bash
+copenguin local "/task 把这些来源整理成可审查简报" \
+  --project work --message-id demo-source-1
+```
+
 启动飞书 webhook 服务：
 
 ```bash
@@ -152,6 +159,7 @@ V2 已确认采用 **Trusted Closure / 可信闭环**，不以扩大自治为起
 Hook/self-loop 边界、按顺序拆分的 PR 与 Definition of Done。
 **Source to Inspectable Artifact** 已确认为 Alpha 主路径；这是产品范围决定，不代表该工作流
 已经通过用户 Pilot 验证。
+[V2-001 统一 Ingress](docs/V2_001_UNIFIED_INGRESS.md) 已通过分支级验收测试。
 
 ## 稳定能力与原型边界
 
@@ -160,13 +168,14 @@ Hook/self-loop 边界、按顺序拆分的 PR 与 Definition of Done。
 - Thread/Run 确定性 replay 与 optimistic revision check；
 - SQLite event journal 和可丢弃重建的只读 projection；
 - 持久调度、lease fencing、资源冲突与 checkpoint 恢复；
-- 保守 Inbox 路由与持久路由记录；
+- 飞书/本地统一 Ingress、跨重启入站去重、规范化消息 Artifact 与持久保守路由；
 - Action Intent、Receipt、审批、过期与对账；
 - 飞书解析、owner allowlist、文字审批、`dry-run` 和显式开启的 allowlisted `local-shell`。
 
 ### 刻意尚未完成
 
-- 旧 `/computer` 与飞书消息链路尚未端到端接入 `InboxCoordinator`；
+- 首次接收的消息仍会从耐久 Ingress 进入兼容助理；V2-002 将移除其内存审批路径；
+- 出站回复在 Outbox 切片完成前还不是事务性的；
 - Step/verifier/Delivery 事件和原子化结束仍是下一段 Runtime 工作；
 - 飞书交互卡片、长连接和真实 computer-use provider 尚未交付；
 - Product Evidence 目前是协议，不是已经得出的市场验证结论；

@@ -5,8 +5,14 @@ from dataclasses import dataclass
 from uuid import NAMESPACE_URL, uuid5
 
 from .artifacts import ArtifactCAS
-from .coordinator import ThreadCoordinator
-from .models import InboxRecord, InboxRouteType
+from .errors import IdempotencyConflict
+from .models import (
+    InboxRecord,
+    InboxRouteState,
+    InboxRouteType,
+    TaskSubmission,
+    content_hash,
+)
 from .repository import SQLiteRuntimeRepository
 from .snapshots import ContextItem, ContextManifest, SnapshotStore, TaskSnapshot
 
@@ -20,9 +26,36 @@ class InboxMessage:
     text: str
     created_at: str
 
+    def __post_init__(self) -> None:
+        normalized = {
+            "platform": self.platform.strip().lower(),
+            "message_id": self.message_id.strip(),
+            "chat_id": self.chat_id.strip(),
+            "actor_id": self.actor_id.strip(),
+            "created_at": self.created_at.strip(),
+        }
+        if any(not value for value in normalized.values()):
+            raise ValueError("platform, message_id, chat_id, actor_id, and created_at are required")
+        if not self.text.strip():
+            raise ValueError("inbound message text is required")
+        for name, value in normalized.items():
+            object.__setattr__(self, name, value)
+
     @property
     def message_key(self) -> str:
         return f"{self.platform}:{self.message_id}"
+
+    @property
+    def payload_hash(self) -> str:
+        return content_hash(
+            {
+                "platform": self.platform,
+                "message_id": self.message_id,
+                "chat_id": self.chat_id,
+                "actor_id": self.actor_id,
+                "text": self.text,
+            }
+        )
 
 
 @dataclass(frozen=True)
@@ -30,6 +63,18 @@ class RoutingContext:
     project_id: str
     current_thread_id: str | None = None
     active_thread_ids: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        project_id = self.project_id.strip()
+        if not project_id:
+            raise ValueError("project_id is required")
+        current_thread_id = self.current_thread_id.strip() if self.current_thread_id else None
+        active_thread_ids = tuple(
+            thread_id.strip() for thread_id in self.active_thread_ids if thread_id.strip()
+        )
+        object.__setattr__(self, "project_id", project_id)
+        object.__setattr__(self, "current_thread_id", current_thread_id)
+        object.__setattr__(self, "active_thread_ids", active_thread_ids)
 
 
 @dataclass(frozen=True)
@@ -41,6 +86,16 @@ class InboxRoute:
     requires_confirmation: bool = False
     target_thread_id: str | None = None
     task_text: str = ""
+
+
+@dataclass(frozen=True)
+class IngressResult:
+    record: InboxRecord
+    accepted_new: bool
+
+    @property
+    def duplicate(self) -> bool:
+        return not self.accepted_new
 
 
 class ConservativeInboxRouter:
@@ -188,7 +243,6 @@ class InboxCoordinator:
         repository: SQLiteRuntimeRepository,
         artifacts: ArtifactCAS,
         snapshots: SnapshotStore,
-        threads: ThreadCoordinator,
         agent_snapshot_id: str,
         router: ConservativeInboxRouter | None = None,
     ) -> None:
@@ -197,14 +251,54 @@ class InboxCoordinator:
         self.repository = repository
         self.artifacts = artifacts
         self.snapshots = snapshots
-        self.threads = threads
         self.agent_snapshot_id = agent_snapshot_id
         self.router = router or ConservativeInboxRouter()
 
     def receive(self, message: InboxMessage, context: RoutingContext) -> InboxRecord:
-        route = self.router.route(message, context)
+        return self.accept(message, context).record
+
+    def accept(self, message: InboxMessage, context: RoutingContext) -> IngressResult:
         text_artifact = self.artifacts.put_text(message.text, kind="inbox_message")
+        existing = self.repository.find_inbox_record(message.message_key)
+        if existing is not None:
+            stable_identity = (
+                existing.platform,
+                existing.message_id,
+                existing.chat_id,
+                existing.actor_id,
+                existing.text_artifact_id,
+            )
+            candidate_identity = (
+                message.platform,
+                message.message_id,
+                message.chat_id,
+                message.actor_id,
+                text_artifact.artifact_id,
+            )
+            if (
+                existing.payload_hash and existing.payload_hash != message.payload_hash
+            ) or stable_identity != candidate_identity:
+                raise IdempotencyConflict(
+                    f"inbox message key was reused with a different payload: {message.message_key}"
+                )
+            return IngressResult(record=existing, accepted_new=False)
+
+        message_artifact = self.artifacts.put_json(
+            {
+                "message_key": message.message_key,
+                "payload_hash": message.payload_hash,
+                "platform": message.platform,
+                "message_id": message.message_id,
+                "chat_id": message.chat_id,
+                "actor_id": message.actor_id,
+                "text_artifact_id": text_artifact.artifact_id,
+                "created_at": message.created_at,
+            },
+            kind="inbox_message_envelope",
+        )
+        route = self.router.route(message, context)
         thread_id = route.target_thread_id
+        task_submission: TaskSubmission | None = None
 
         if route.route_type == InboxRouteType.NEW_TASK:
             thread_id = uuid5(NAMESPACE_URL, f"{message.message_key}:thread").hex
@@ -237,7 +331,7 @@ class InboxCoordinator:
                     compiled_at=message.created_at,
                 )
             )
-            self.threads.submit_task(
+            task_submission = TaskSubmission(
                 project_id=context.project_id,
                 title=self._title(objective),
                 thread_id=thread_id,
@@ -253,14 +347,21 @@ class InboxCoordinator:
                 context_manifest_id=context_manifest.artifact_id,
             )
 
+        route_state = (
+            InboxRouteState.PROPOSED if route.requires_confirmation else InboxRouteState.CONFIRMED
+        )
         record = InboxRecord(
             message_key=message.message_key,
+            payload_hash=message.payload_hash,
             platform=message.platform,
             message_id=message.message_id,
             chat_id=message.chat_id,
             actor_id=message.actor_id,
+            project_id=context.project_id,
+            message_artifact_id=message_artifact.artifact_id,
             text_artifact_id=text_artifact.artifact_id,
             route_type=route.route_type,
+            route_state=route_state,
             thread_id=thread_id,
             confidence=route.confidence,
             rationale=route.rationale,
@@ -268,8 +369,58 @@ class InboxCoordinator:
             requires_confirmation=route.requires_confirmation,
             created_at=message.created_at,
         )
-        return self.repository.record_inbox_route(record)
+        stored, accepted_new = self.repository.accept_inbox_route(
+            record,
+            task_submission=task_submission,
+        )
+        return IngressResult(record=stored, accepted_new=accepted_new)
 
     def _title(self, objective: str) -> str:
         compact = " ".join(objective.split())
         return compact[:80] or "Untitled task"
+
+
+class IngressAdapter:
+    """Normalizes one channel into the durable Inbox without calling Providers."""
+
+    def __init__(
+        self,
+        *,
+        platform: str,
+        coordinator: InboxCoordinator,
+        default_project_id: str,
+    ) -> None:
+        platform = platform.strip().lower()
+        default_project_id = default_project_id.strip()
+        if not platform or not default_project_id:
+            raise ValueError("platform and default_project_id are required")
+        self.platform = platform
+        self.coordinator = coordinator
+        self.default_project_id = default_project_id
+
+    def receive(
+        self,
+        *,
+        message_id: str,
+        chat_id: str,
+        actor_id: str,
+        text: str,
+        created_at: str,
+        project_id: str | None = None,
+        current_thread_id: str | None = None,
+        active_thread_ids: tuple[str, ...] = (),
+    ) -> IngressResult:
+        message = InboxMessage(
+            platform=self.platform,
+            message_id=message_id,
+            chat_id=chat_id,
+            actor_id=actor_id,
+            text=text,
+            created_at=created_at,
+        )
+        context = RoutingContext(
+            project_id=(project_id or self.default_project_id).strip(),
+            current_thread_id=current_thread_id,
+            active_thread_ids=active_thread_ids,
+        )
+        return self.coordinator.accept(message, context)
