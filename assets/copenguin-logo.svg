@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">CoPenguin logo</title>
+  <desc id="desc">A grey penguin wearing a mint scarf inside a pink circle.</desc>
+  <rect width="256" height="256" rx="56" fill="#0f0b12"/>
+  <circle cx="128" cy="124" r="92" fill="#1b1219" stroke="#ff5aa5" stroke-width="8"/>
+  <ellipse cx="128" cy="118" rx="63" ry="59" fill="#5f6268"/>
+  <ellipse cx="104" cy="123" rx="28" ry="37" fill="#fff4fb"/>
+  <ellipse cx="152" cy="123" rx="28" ry="37" fill="#fff4fb"/>
+  <circle cx="108" cy="123" r="11" fill="#050507"/>
+  <circle cx="148" cy="123" r="11" fill="#050507"/>
+  <ellipse cx="128" cy="141" rx="17" ry="11" fill="#151217"/>
+  <rect x="81" y="164" width="94" height="24" rx="12" fill="#b8eee4"/>
+  <rect x="147" y="168" width="31" height="49" rx="11" fill="#b8eee4"/>
+  <rect x="153" y="176" width="19" height="19" rx="5" fill="#ff5aa5"/>
+  <text x="158" y="191" fill="#fff4fb" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="800">C</text>
+</svg>

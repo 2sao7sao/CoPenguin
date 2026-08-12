@@ -1,127 +1,167 @@
+<img src="assets/readme-banner.svg" alt="CoPenguin banner with the scarf-wearing penguin mascot" width="100%" />
+
+<p align="center">
+  <a href="./README.zh.md">简体中文</a> ·
+  <a href="./docs/PRODUCT_DISCOVERY.md">Product Discovery</a> ·
+  <a href="./docs/RUNTIME_ARCHITECTURE.md">Runtime Architecture</a> ·
+  <a href="./docs/PILOT_PROTOCOL.md">Pilot Protocol</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/2sao7sao/CoPenguin/actions/workflows/ci.yml"><img src="https://github.com/2sao7sao/CoPenguin/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI" /></a>
+  <img src="https://img.shields.io/badge/python-3.11%2B-ff5aa5" alt="Python 3.11+" />
+  <img src="https://img.shields.io/badge/version-v0.1.0-b8eee4" alt="Version 0.1.0" />
+  <img src="https://img.shields.io/badge/posture-local--first-ff5aa5" alt="Local-first" />
+</p>
+
 # CoPenguin
 
-CoPenguin 是一个 local-first 的私人助理 Agent Runtime。它以持久化 TaskThread
-管理工作与生活任务，通过受治理的记忆、可执行知识和安全动作边界逐步获得自治能力。
-飞书是当前首个消息入口，而不是 Runtime 本身。
+**A local-first personal agent runtime that turns ambiguous requests into durable, inspectable, and safely governed work.**
 
-## Design Inputs
+A personal assistant needs more than one long chat transcript. CoPenguin separates
+conversation from work, gives each durable task its own `TaskThread`, preserves
+causal history across concurrent runs, and places approval and receipts around
+real-world actions. EvolveMemory supplies governed personalization; EvolveKB
+supplies executable knowledge. Neither one silently owns orchestration.
 
-- [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent): messaging gateway、skills、memory、approval、multi-platform routing。
-- [openclaw/openclaw](https://github.com/openclaw/openclaw): local-first gateway、Feishu channel、DM/group access policy、dynamic agent routing。
-- [2sao7sao/EvolveKB](https://github.com/2sao7sao/EvolveKB): execution-first knowledge、Skills、Playbooks、validation gates。
-- [2sao7sao/EvolveMemory](https://github.com/2sao7sao/EvolveMemory): governed adaptive memory、write policy、memory-use gate、prompt-safe context。
+<img src="docs/assets/copenguin-runtime-terminal.svg" alt="CoPenguin test-backed runtime contract" width="100%" />
 
-## Current MVP
+## 30-Second Product Path
 
-已实现：
+```text
+one inbox
+  -> conservative route: chat | new task | task update | ambiguous
+  -> durable TaskThread + versioned snapshots
+  -> fenced worker + recoverable checkpoint
+  -> action intent + approval when required
+  -> provider execution + receipt + reconciliation
+  -> inspectable delivery and governed learning candidates
+```
 
-- Feishu webhook endpoint: `POST /feishu/events`
-- Feishu URL verification challenge
-- `im.message.receive_v1` text/post message parsing
-- owner allowlist access control
-- `/computer <task>` computer task entrypoint
-- text approval flow: `/approve <id>` / `/deny <id>`
-- `dry-run` computer provider
-- opt-in `local-shell` provider with executable allowlist
-- optional EvolveMemory adapter
-- optional EvolveKB adapter
-- unit tests for parser, access control, approvals, and computer provider
-- event-sourced CoPenguin Runtime core with deterministic Thread/Run replay
-- durable multi-Thread scheduler with lease fencing and resource conflict control
-- immutable Artifact CAS plus Task/Agent/Context snapshots bound to each Run
-- Intent/Receipt action boundary with crash reconciliation instead of blind retry
-- atomic Task submission plus fenced worker checkpoint recovery
-- conservative Inbox routing that keeps chat, new Tasks, Task updates, and
-  ambiguous messages separate
-- persistent Approval gate linked to Action Intent and Thread attention
-- read-only Runtime projections for Threads, Inbox routes, Actions, and Approvals
+The last step is deliberately a candidate boundary: runtime evidence may propose
+a memory, skill, hook, or permission change, but it cannot promote itself.
 
-Runtime design and current implementation status:
+## What Ships in v0.1.0
 
-- [Runtime architecture](docs/RUNTIME_ARCHITECTURE.md)
-- [State and event protocol](docs/STATE_EVENT_SPEC.md)
+| Surface | Current capability |
+| --- | --- |
+| Durable history | Append-only events, deterministic replay, projection hashes, causal IDs |
+| Task isolation | Project → `TaskThread` → Run, with a single-writer rule per Thread |
+| Parallel work | Durable queue, worker leases, fencing tokens, shared/exclusive resource locks |
+| Recovery | Immutable Artifact CAS and Task/Agent/Context snapshots bound to each Run |
+| Inbox decisions | Chat, new task, task update, control, or confirmation-required ambiguity |
+| External effects | Intent → approval → provider → Receipt, with crash reconciliation |
+| Operator views | Read-only projections for Threads, inbox routes, actions, and approvals |
+| Entry points | Local CLI plus Feishu webhook MVP with owner allowlist |
+| Optional intelligence | Adapters for EvolveMemory and EvolveKB |
 
-## Product Validation Status
-
-Runtime capability is not evidence of product demand. CoPenguin is currently
-testing the hypothesis that AI-native, multi-project individual workers will
-repeatedly delegate real tasks, accept inspectable results, and voluntarily
-expand one bounded permission.
-
-Product discovery and the research gate:
-
-- [Product discovery and target segment](docs/PRODUCT_DISCOVERY.md)
-- [Problem interview guide](docs/INTERVIEW_GUIDE.md)
-- [Four-week pilot protocol](docs/PILOT_PROTOCOL.md)
-- [Product Evidence event protocol](docs/PRODUCT_EVIDENCE_SPEC.md)
-
-The product north star proposed for the pilot is accepted closed-loop tasks per
-participant per active week. Time in app, message count, emotional dependence,
-and raw autonomy level are not success metrics. Product Evidence is a separate,
-consent-filtered observation plane and cannot mutate Runtime state or promote
-memory, knowledge, skills, or permissions.
-
-下一步应优先做：
-
-- complete 12-15 problem interviews and select one validated pilot workflow
-- run the four-week product mechanism pilot before autonomous self-evolution
-- Feishu long-connection WebSocket runner via `lark_oapi`
-- Feishu interactive-card approvals
-- real computer-use provider: OpenAI CUA, local MCP computer-use, browser automation, or macOS automation
-- bind Feishu/computer tasks to the durable Runtime scheduler and Thread state machine
-- complete Step/verifier/Delivery events and atomic terminal completion
-- add the versioned Hook Registry and event-derived self-loop monitor
-
-## Install
+## 5-Minute Local Path
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[dev]"
+pytest -q
 ```
 
-Optional Evolve integrations:
+Send one message through the current local assistant boundary:
 
 ```bash
-python -m pip install -e ".[evolve]"
+export COMPUTER_PROVIDER=dry-run
+copenguin local "/computer open calendar and summarize tomorrow"
 ```
 
-## Configure
-
-Copy `.env.example` values into your shell or process manager.
-
-CoPenguin stores local Runtime data under `.copenguin/` by default. Existing
-`.agent-data/` installations are detected automatically; an explicit
-`COPENGUIN_DATA_DIR` always takes precedence.
-
-Minimum local dev:
+Run the Feishu webhook service:
 
 ```bash
 export FEISHU_VERIFICATION_TOKEN="your-token"
 export FEISHU_ALLOWED_OPEN_IDS="ou_xxx"
 export TRUST_ALL_FEISHU_USERS_FOR_DEV=0
 export COMPUTER_PROVIDER=dry-run
-```
-
-Run:
-
-```bash
 copenguin serve
 ```
-
-Health check:
 
 ```bash
 curl http://127.0.0.1:8787/healthz
 ```
 
-Local test without Feishu:
+`dry-run` performs no desktop mutation. Optional integrations can be installed
+with `python -m pip install -e ".[evolve]"`.
 
-```bash
-copenguin local "/computer open calendar and summarize tomorrow"
+## Why This Is Not Just Chat or a Task Manager
+
+| Common approach | Missing control | CoPenguin boundary |
+| --- | --- | --- |
+| One chat for everything | Task identity, concurrency, recoverability | Messages are routed; durable work gets a `TaskThread` |
+| A task list with status fields | Execution lineage and external-effect safety | Events, snapshots, checkpoints, intents, and receipts |
+| Vector memory on every turn | Scope, provenance, correction, expiry | Governed EvolveMemory candidates and use gates |
+| Retrieved documents | Executable procedures and validation | EvolveKB Playbooks, Skills, gates, and proposals |
+| Autonomous self-editing | Independent evaluation and rollback | Candidate → evaluation → shadow → promotion → monitor → rollback |
+
+## Architecture
+
+```mermaid
+flowchart LR
+  U["Unified Inbox"] --> R["Conservative Router"]
+  R --> C["Conversation"]
+  R --> T["TaskThread"]
+  R --> Q["Confirmation"]
+  T --> S["Snapshots + Artifact CAS"]
+  T --> W["Durable Scheduler"]
+  W --> I["Action Intent"]
+  I --> A["Approval Gate"]
+  A --> P["Provider"]
+  P --> X["Receipt + Reconciliation"]
+  X --> D["Inspectable Delivery"]
+  D --> M["Memory Candidate"]
+  D --> K["Knowledge / Skill Proposal"]
+  M --> G["Independent Governance"]
+  K --> G
 ```
 
-## Feishu Commands
+The event journal supports multiple linked histories instead of one overloaded
+transcript: conversation, execution, decisions, artifacts, and governance.
+See the [runtime architecture](docs/RUNTIME_ARCHITECTURE.md) and
+[state/event protocol](docs/STATE_EVENT_SPEC.md).
+
+## Product Validation Gate
+
+Technical correctness is not product demand. The initial hypothesis is that
+AI-native individual workers juggling several projects will repeatedly delegate
+real tasks, accept inspectable results, and voluntarily expand one bounded
+permission.
+
+The pilot north star is **accepted closed-loop tasks per participant per active
+week**. Time in app, message count, emotional dependence, and raw autonomy level
+are not success metrics. Product Evidence is a separate, consent-filtered
+observation plane; it cannot mutate runtime state or promote memory, knowledge,
+skills, hooks, or permissions.
+
+- [Target segment and discovery thesis](docs/PRODUCT_DISCOVERY.md)
+- [Problem interview guide](docs/INTERVIEW_GUIDE.md)
+- [Four-week pilot protocol](docs/PILOT_PROTOCOL.md)
+- [Product Evidence protocol](docs/PRODUCT_EVIDENCE_SPEC.md)
+
+## Stable vs Prototype
+
+### Implemented and test-backed
+
+- deterministic Thread/Run replay and optimistic revision checks;
+- SQLite event journal plus disposable read projections;
+- durable scheduling, lease fencing, resource conflicts, and checkpoint recovery;
+- conservative inbox routing and persistent route records;
+- durable Action Intents, Receipts, approvals, expiry, and reconciliation;
+- Feishu parsing, owner allowlist, text approval commands, `dry-run`, and opt-in allowlisted `local-shell`.
+
+### Deliberately incomplete
+
+- the legacy `/computer` and Feishu message path is not yet bound end-to-end to `InboxCoordinator`;
+- Step/verifier/Delivery events and atomic terminal completion are next runtime slices;
+- interactive Feishu cards, long-connection mode, and a real computer-use provider are not shipped;
+- Product Evidence is specified but not an operational validation result;
+- versioned hooks, self-loop monitoring, shadow evaluation, and autonomous promotion are planned, not enabled.
+
+## Current Commands
 
 - `/status`
 - `/remember <text>`
@@ -130,14 +170,38 @@ copenguin local "/computer open calendar and summarize tomorrow"
 - `/approve <id>`
 - `/deny <id>`
 
+## Repository Map
+
+```text
+src/super_agent_runtime/      durable events, scheduler, snapshots, inbox, actions
+src/feishu_computer_agent/    current Feishu and local assistant MVP boundary
+src/copenguin/                public package and CLI entry point
+tests/                        runtime and channel contract tests
+docs/                         architecture, governance, security, and pilot specs
+assets/                       reusable CoPenguin logo and README banner
+```
+
+Local data uses `.copenguin/` by default. Existing `.agent-data/` installations
+are detected for compatibility; explicit `COPENGUIN_DATA_DIR` always wins.
+
 ## Security Defaults
 
-The default posture is intentionally restrictive:
-
 - no configured owner allowlist means Feishu messages are ignored;
-- all computer tasks require approval by default;
-- `COMPUTER_PROVIDER=dry-run` performs no real desktop action;
-- `local-shell` must be explicitly enabled and only runs allowlisted executables;
+- computer tasks require approval by default;
+- `COMPUTER_PROVIDER=dry-run` performs no real action;
+- `local-shell` is opt-in and only runs allowlisted executables;
 - encrypted Feishu webhooks are rejected in this MVP instead of being silently mishandled.
 
-See [docs/SECURITY.md](docs/SECURITY.md).
+See [Security](docs/SECURITY.md) and [Feishu setup](docs/FEISHU_SETUP.md).
+
+## Brand Assets
+
+The scarf-wearing penguin is a repository-owned asset, not an external link.
+The mascot geometry, dark grid, pink/mint palette, and terminal motif intentionally
+match the [EvolveKB](https://github.com/2sao7sao/EvolveKB) brand family.
+
+- [Standalone penguin logo](assets/copenguin-logo.svg)
+- [README banner](assets/readme-banner.svg)
+- [Asset provenance and refresh checklist](docs/assets/README.md)
+
+Do not remove the standalone logo when refreshing the banner.

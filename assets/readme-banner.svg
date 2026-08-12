@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="720" viewBox="0 0 1600 720" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">CoPenguin banner</title>
+  <desc id="desc">CoPenguin mascot and a terminal-shaped map of its governed personal agent runtime.</desc>
+  <defs>
+    <pattern id="grid" width="80" height="80" patternUnits="userSpaceOnUse">
+      <path d="M80 0H0V80" stroke="#261421" stroke-opacity=".7" stroke-width="1"/>
+    </pattern>
+    <linearGradient id="pink" x1="120" x2="620" y1="120" y2="610" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ff7fbd"/>
+      <stop offset="1" stop-color="#ff2f86"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="18" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="1600" height="720" fill="#0f0b12"/>
+  <rect width="1600" height="720" fill="url(#grid)"/>
+  <circle cx="1370" cy="120" r="260" fill="#ff5aa5" opacity=".07"/>
+  <circle cx="220" cy="610" r="280" fill="#b8eee4" opacity=".05"/>
+  <rect x="72" y="62" width="1456" height="596" rx="28" fill="#140e16" stroke="#342031"/>
+
+  <g transform="translate(116 96)">
+    <circle cx="50" cy="50" r="50" fill="#1b1219" stroke="#ff5aa5" stroke-width="4"/>
+    <ellipse cx="50" cy="47" rx="34" ry="32" fill="#5f6268"/>
+    <ellipse cx="37" cy="50" rx="15" ry="20" fill="#fff4fb"/>
+    <ellipse cx="63" cy="50" rx="15" ry="20" fill="#fff4fb"/>
+    <circle cx="39" cy="50" r="6" fill="#050507"/>
+    <circle cx="61" cy="50" r="6" fill="#050507"/>
+    <ellipse cx="50" cy="59" rx="9" ry="6" fill="#151217"/>
+    <rect x="25" y="72" width="50" height="13" rx="6.5" fill="#b8eee4"/>
+    <rect x="60" y="74" width="16" height="26" rx="6" fill="#b8eee4"/>
+    <rect x="63" y="78" width="10" height="10" rx="3" fill="#ff5aa5"/>
+    <text x="66" y="87" fill="#fff4fb" font-family="Inter, Arial, sans-serif" font-size="9" font-weight="800">C</text>
+  </g>
+
+  <text x="116" y="252" fill="#ff5aa5" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" letter-spacing="3">7SAO DEVELOPER SYSTEMS</text>
+  <text x="112" y="342" fill="#fff4fb" font-family="Inter, Arial, sans-serif" font-size="88" font-weight="800">CoPenguin</text>
+  <text x="118" y="398" fill="#d8c6d0" font-family="Inter, Arial, sans-serif" font-size="28">A durable personal agent runtime.</text>
+  <text x="118" y="446" fill="#a998a4" font-family="Inter, Arial, sans-serif" font-size="21">Threads, checkpoints, approvals, receipts, memory, and safe evolution.</text>
+
+  <g font-family="Inter, Arial, sans-serif" font-size="17" font-weight="700">
+    <rect x="118" y="505" width="124" height="38" rx="19" fill="#21131d" stroke="#ff5aa5"/>
+    <text x="142" y="530" fill="#ff8cba">threads</text>
+    <rect x="258" y="505" width="132" height="38" rx="19" fill="#21131d" stroke="#ff5aa5"/>
+    <text x="283" y="530" fill="#ff8cba">receipts</text>
+    <rect x="406" y="505" width="124" height="38" rx="19" fill="#21131d" stroke="#ff5aa5"/>
+    <text x="429" y="530" fill="#ff8cba">memory</text>
+    <rect x="546" y="505" width="134" height="38" rx="19" fill="#21131d" stroke="#ff5aa5"/>
+    <text x="567" y="530" fill="#ff8cba">evolution</text>
+  </g>
+
+  <g transform="translate(930 112)">
+    <rect width="504" height="456" rx="24" fill="#09070a" stroke="#3b2536"/>
+    <rect width="504" height="56" rx="24" fill="#181018"/>
+    <circle cx="32" cy="28" r="7" fill="#ff5aa5"/>
+    <circle cx="56" cy="28" r="7" fill="#ffd1e5"/>
+    <circle cx="80" cy="28" r="7" fill="#b8eee4"/>
+    <text x="30" y="106" fill="#ff5aa5" font-family="SFMono-Regular, Menlo, monospace" font-size="18">$ copenguin receive</text>
+    <g font-family="SFMono-Regular, Menlo, monospace" font-size="20">
+      <text x="30" y="164" fill="#fff4fb">Inbox route</text>
+      <text x="30" y="214" fill="#fff4fb">Durable TaskThread</text>
+      <text x="30" y="264" fill="#fff4fb">Fenced checkpoint</text>
+      <text x="30" y="314" fill="#fff4fb">Intent + approval</text>
+      <text x="30" y="364" fill="#fff4fb">Provider + receipt</text>
+      <text x="30" y="414" fill="#b8eee4">Inspectable delivery</text>
+    </g>
+    <path d="M420 132C454 190 450 286 394 350C356 394 304 410 242 408" stroke="url(#pink)" stroke-width="6" stroke-linecap="round" filter="url(#glow)"/>
+  </g>
+</svg>
