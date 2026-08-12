@@ -2,6 +2,7 @@
 
 <p align="center">
   <a href="./README.md">English</a> ·
+  <a href="./docs/V2_PRODUCT_ENGINEERING_DIRECTION.md">V2 优化方向</a> ·
   <a href="./docs/PRODUCT_DISCOVERY.md">产品发现</a> ·
   <a href="./docs/RUNTIME_ARCHITECTURE.md">Runtime 架构</a> ·
   <a href="./docs/PILOT_PROTOCOL.md">试点协议</a>
@@ -135,6 +136,19 @@ flowchart LR
 - [问题访谈指南](docs/INTERVIEW_GUIDE.md)
 - [四周试点协议](docs/PILOT_PROTOCOL.md)
 - [Product Evidence 协议](docs/PRODUCT_EVIDENCE_SPEC.md)
+
+## V2 方向：Trusted Closure / 可信闭环
+
+第二版本不以扩大自治为起点，而是先把旧消息入口与耐久 Runtime 收敛成一条可验证的产品主链：
+
+```text
+消息 -> 路由决定 -> TaskThread -> Run/Steps -> 经验证的 Delivery
+     -> 接受/修改/拒绝 -> 受治理的学习候选项
+```
+
+详见 [产品与工程审计及 V2 方向](docs/V2_PRODUCT_ENGINEERING_DIRECTION.md) 和面向实现的
+[V2 Runtime Contract](docs/V2_RUNTIME_CONTRACT.md)。其中包括当前问题清单、产品控制面、
+Hook/self-loop 边界、按顺序拆分的 PR 与 Definition of Done。
 
 ## 稳定能力与原型边界
 

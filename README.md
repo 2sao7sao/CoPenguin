@@ -2,6 +2,7 @@
 
 <p align="center">
   <a href="./README.zh.md">简体中文</a> ·
+  <a href="./docs/V2_PRODUCT_ENGINEERING_DIRECTION.md">V2 Direction</a> ·
   <a href="./docs/PRODUCT_DISCOVERY.md">Product Discovery</a> ·
   <a href="./docs/RUNTIME_ARCHITECTURE.md">Runtime Architecture</a> ·
   <a href="./docs/PILOT_PROTOCOL.md">Pilot Protocol</a>
@@ -141,6 +142,22 @@ skills, hooks, or permissions.
 - [Problem interview guide](docs/INTERVIEW_GUIDE.md)
 - [Four-week pilot protocol](docs/PILOT_PROTOCOL.md)
 - [Product Evidence protocol](docs/PRODUCT_EVIDENCE_SPEC.md)
+
+## V2 Direction: Trusted Closure
+
+The proposed second version does not start with broader autonomy. It first
+converges the legacy message path and the durable Runtime into one testable
+product loop:
+
+```text
+message -> route decision -> TaskThread -> Run/Steps -> verified Delivery
+        -> accept/revise/reject -> governed learning candidate
+```
+
+Read the [product and engineering review](docs/V2_PRODUCT_ENGINEERING_DIRECTION.md)
+and the implementation-facing [V2 Runtime Contract](docs/V2_RUNTIME_CONTRACT.md).
+The proposal includes the current problem inventory, target product surface,
+Hook and self-loop boundaries, ordered PR slices, and Definition of Done.
 
 ## Stable vs Prototype
 

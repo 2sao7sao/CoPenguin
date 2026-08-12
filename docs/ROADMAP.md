@@ -1,6 +1,18 @@
-# Roadmap
+# CoPenguin Roadmap
 
-## Phase 0.5: Product Mechanism Validation
+## Current decision
+
+The proposed V2 theme is **Trusted Closure**: make one real message become one
+isolated, recoverable, verifiable, and explicitly accepted Delivery before
+expanding autonomy.
+
+- [V2 product and engineering direction](V2_PRODUCT_ENGINEERING_DIRECTION.md)
+- [V2 Runtime Contract](V2_RUNTIME_CONTRACT.md)
+
+The implementation order is determined by the product loop, not by the number
+of available channels, tools, or model Providers.
+
+## Gate 0: Product mechanism validation
 
 - [x] Define the initial target-segment hypothesis and alternatives
 - [x] Define ethical continued-use and anti-addiction boundaries
@@ -8,70 +20,96 @@
 - [x] Prepare the four-week pilot protocol and decision gates
 - [x] Specify a consent-filtered Product Evidence event plane
 - [ ] Complete 12-15 qualified problem interviews
-- [ ] Select one primary workflow from demonstrated evidence
-- [ ] Reduce and privacy-review the pilot event catalog
-- [ ] Run the four-week pilot with 12 participants
+- [ ] Select or reject the Source-to-Inspectable-Artifact Alpha workflow
+- [ ] Reduce and privacy-review the Pilot event catalog
+- [ ] Run the four-week Pilot with 12 participants
 - [ ] Decide proceed, narrow, repeat, or stop
 
-Automatic self-evolution remains gated until repeated delegation, accepted
-outcomes, memory correctness, and bounded trust expansion are observed. Runtime
-engineering may continue where it is required for pilot safety or measurement.
+Runtime work may proceed where it enables the Golden Path, safety, recovery, or
+measurement. Product hypotheses remain hypotheses until this gate supplies
+behavioral evidence.
 
-## Phase 1: Local Safe MVP
+## V2-A: Converge the real product path
 
-- Webhook receive/send
-- Owner allowlist
-- Approval queue
-- Dry-run computer provider
-- EvolveMemory/EvolveKB optional adapters
+- [ ] Route Feishu, local UI, and CLI through one durable Ingress boundary
+- [ ] Add end-to-end inbound idempotency and outbound transactional Outbox
+- [ ] Replace the product-path in-memory approval queue with durable Approvals
+- [ ] Persist Thread updates, route corrections, confirmation, cancellation,
+      and method-change Branch events
+- [ ] Keep ordinary conversation durable without creating a TaskThread
 
-Status: implemented.
+Exit: every real message uses the same state and governance boundary.
 
-## Phase 2: Feishu-Native Control Plane
+## V2-B: Close the execution and Delivery loop
 
-- Long-connection WebSocket mode via `lark_oapi`
-- Interactive-card streaming status
-- Interactive-card approval buttons
-- File/image/audio ingestion
-- Feishu document/comment event ingestion
+- [ ] Implement a bounded Worker Host and Executor Protocol
+- [ ] Add Step lifecycle, budgets, cancellation, checkpoint, and tool/model trace
+- [ ] Add Verifier Registry and versioned VerifierResult Artifacts
+- [ ] Atomically finalize scheduler, Run, Thread, Delivery, Attention, and Outbox
+- [ ] Persist `accept`, `revise`, `reject`, `defer`, and `take over` decisions
+- [ ] Create a new immutable Run/Delivery version after a revision request
 
-## Phase 1.5: Durable Multi-Task Runtime
+Exit: one Source-to-Artifact task survives restart and reaches an explicit user
+decision with a complete causal trace.
 
-- [x] Event Journal and deterministic Thread/Run replay
-- [x] Sidebar-oriented Thread projection
-- [x] Optimistic Thread single-writer control
-- [x] Durable scheduler claim, heartbeat, retry, and fencing
-- [x] Cross-Thread resource read/write leases
-- [x] TaskSnapshot, AgentSnapshot, and ContextManifest
-- [x] Artifact content-addressed storage
-- [x] Intent/Receipt external side-effect boundary
-- [x] Atomic Task submission and Thread Coordinator claim/start
-- [x] Fenced checkpoint and crash recovery handoff
-- [x] Inbox routing into new Thread, existing Thread, or non-task chat
-- [x] Persistent Approval gate linked to Action Intent
-- [ ] Bind Feishu/local ingress to the durable Inbox route
-- [ ] Step/verifier/Delivery lifecycle and atomic terminal completion
-- [ ] Hook Registry and self-loop observation service
+## V2-C: Expose the local control plane
 
-## Phase 3: Real Computer Use
+- [ ] Build a minimal local Control Room: Inbox, TaskThreads, Attention,
+      Task Detail, Artifacts, Memory & Permissions
+- [ ] Show and correct Route Decisions
+- [ ] Show Delivery summary, evidence, decisions, diff, and next action
+- [ ] Add local session authentication and scoped Artifact access
+- [ ] Require explicit opt-in before binding beyond loopback
 
-- Provider for OpenAI computer-use capable model
-- Provider for local MCP computer-use server
-- Provider for browser automation
-- Provider for macOS automation
-- Observation store with screenshots, tool calls, and audit trail
+Exit: users can understand and control parallel work without reading logs or
+SQLite tables.
 
-## Phase 4: Personal Assistant Behavior
+## V2-D: Add governed learning
 
-- EvolveKB playbooks for recurring personal workflows
-- EvolveMemory correction, review, and forget flows exposed in Feishu
-- Daily/weekly scheduled routines
-- Multi-session continuity across Feishu DM, group, and desktop
+- [ ] Bind MemorySelectionManifest, KB, Skill, Hook, Permission, Verifier, and
+      Provider snapshots to each Run
+- [ ] Expose Memory candidate review, correction, rejection, expiry, and forget
+- [ ] Implement a versioned Hook Registry with timeouts and failure policy
+- [ ] Implement an event-derived Observation Monitor
+- [ ] Open ReviewCases and remediation proposals with evidence and cooldown
+- [ ] Implement only the minimal Product Evidence events required by the Pilot
 
-## Phase 5: Hardening
+Exit: learning produces inspectable candidates and ReviewCases, never direct
+promotion.
 
-- Scheduler chaos and multi-process contention tests
-- Capability-scoped tokens
-- Per-sender and per-chat tool policy
-- Encrypted webhook support or WebSocket-only deployment
-- CI gates for knowledge and memory behavior
+## V2-E: Harden recovery and ownership
+
+- [ ] Run crash injection across Ingress, Step, Provider, Receipt, Delivery, and
+      Outbox boundaries
+- [ ] Add multi-process contention and scheduler chaos tests
+- [ ] Add event upcasters and versioned database migrations
+- [ ] Add backup, export, deletion, restore, and replay-integrity verification
+- [ ] Add Artifact metadata, sensitivity, retention, and cleanup policy
+- [ ] Split the repository implementation into stores behind one UnitOfWork
+- [ ] Benchmark latency, recovery time, storage growth, and 10k dormant Threads
+
+Exit: a restored local installation reproduces projection hashes and does not
+duplicate side effects or lose Delivery decisions.
+
+## After V2: evaluated evolution
+
+Only after the Product Pilot and V2 Runtime gates pass:
+
+- candidate snapshots;
+- held-out independent evaluation;
+- shadow execution;
+- human-approved canary promotion;
+- post-promotion monitoring;
+- pointer rollback.
+
+Automatic self-promotion and L3 bounded auto-run remain disabled by default.
+
+## Explicitly deferred
+
+- broad real computer-use Providers;
+- high-risk unattended actions;
+- many messaging channels at once;
+- consumer companion mechanics;
+- enterprise multi-tenancy;
+- dedicated hardware;
+- model-weight self-optimization.

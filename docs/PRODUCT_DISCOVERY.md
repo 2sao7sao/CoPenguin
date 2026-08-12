@@ -19,6 +19,14 @@ app or emotional dependence. A single Inbox is a sensible intake surface, but
 the durable product also needs TaskThreads, Attention, Artifacts, and inspectable
 Memory and Permissions.
 
+The competitive baseline changed materially in mid-2026. General platforms now
+offer long-running work agents, connected-app execution, finished artifacts,
+scheduled tasks, visible progress, approvals, project memory, and session event
+streams. CoPenguin therefore cannot differentiate on “an agent that works for a
+long time” or “chat with memory.” The testable wedge is a user-owned,
+provider-independent control plane with replayable recovery, explicit task
+boundaries, governed memory and permissions, and inspectable delivery decisions.
+
 ## Product thesis
 
 > CoPenguin is a user-owned personal execution system that keeps commitments
@@ -132,7 +140,9 @@ to treat time spent as a guardrail rather than a success metric.
 
 | Alternative | Current value | Remaining gap CoPenguin may test |
 | --- | --- | --- |
-| ChatGPT, Claude, Gemini | Advice, research, writing, project conversations | Cross-tool responsibility, durable execution state, receipts, and bounded autonomy |
+| ChatGPT Work/Projects/Tasks | Long-running work, connected apps, finished artifacts, project memory, scheduling, approvals | Local ownership, provider portability, replayable recovery, capability-scoped governance |
+| Claude Managed Agents / Claude Code | Versioned agents, sessions, event streams, tools, budgets, developer observability | A user-facing life/work control plane independent of one hosted model platform |
+| Gemini and other general assistants | Advice, research, writing, connected ecosystem actions | Durable cross-provider history, recovery and inspectable permission evolution |
 | Notion, Obsidian, Todoist | Explicit notes and task state | Manual capture, classification, follow-up, and artifact production |
 | Motion and calendar assistants | Automated time allocation | Narrow scheduling scope; limited project reasoning and delivery verification |
 | Zapier, n8n, Shortcuts | Deterministic cross-app automation | High configuration cost and weak handling of ambiguous, temporary work |
@@ -157,6 +167,11 @@ Observed demand and technical feasibility are converging, but not complete:
   destination alone.
 - Real-work agent benchmarks still show a large reliability gap on complex,
   long-horizon tasks.
+- ChatGPT Work now makes multi-hour, cross-app execution and finished documents,
+  spreadsheets, presentations, reports, and sites part of the direct category
+  baseline.
+- Claude Managed Agents exposes versioned agents, stateful sessions, persistent
+  event streams, budgets, tool confirmation, and tracing as platform primitives.
 
 The implication is that CoPenguin should initially augment and coordinate work,
 then earn selective automation. It should not begin by promising replacement.
@@ -237,6 +252,11 @@ product information architecture.
 ### Official product and market references
 
 - [ChatGPT Projects](https://help.openai.com/en/articles/10169521-projects-in-chatgpt)
+- [ChatGPT Work](https://openai.com/index/chatgpt-for-your-most-ambitious-work/)
+- [ChatGPT Scheduled Tasks](https://help.openai.com/en/articles/10291617-tasks-inchatgpt)
+- [ChatGPT Memory](https://openai.com/index/chatgpt-memory-dreaming/)
+- [Claude Managed Agent sessions](https://platform.claude.com/docs/en/managed-agents/sessions)
+- [Claude Managed Agent event streams](https://platform.claude.com/docs/en/managed-agents/events-and-streaming)
 - [Zapier Agents](https://help.zapier.com/hc/en-us/articles/24393442652557-Build-an-agent-in-Zapier-Agents)
 - [Motion AI Task Manager](https://www.usemotion.com/features/ai-task-manager)
 - [OpenClaw](https://github.com/openclaw/openclaw)
