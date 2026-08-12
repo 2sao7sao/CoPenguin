@@ -424,9 +424,7 @@ def test_computer_and_approval_commands_fail_closed_without_durable_ingress(tmp_
         computer = await harness.agent.handle(
             _message("/computer open browser", message_id="computer-1")
         )
-        approval = await harness.agent.handle(
-            _message("/approve missing", message_id="approval-1")
-        )
+        approval = await harness.agent.handle(_message("/approve missing", message_id="approval-1"))
 
         assert "not durably routed" in computer.text
         assert "not durably routed" in approval.text

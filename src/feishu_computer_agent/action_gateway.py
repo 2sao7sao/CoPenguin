@@ -108,9 +108,7 @@ class DurableComputerActionGateway:
     def pending_approval_count(self) -> int:
         self.recover_missing_approvals()
         self._repository.expire_pending_approvals()
-        return len(
-            self._repository.list_approvals(status=ApprovalState.PENDING, limit=10_000)
-        )
+        return len(self._repository.list_approvals(status=ApprovalState.PENDING, limit=10_000))
 
     def recover_missing_approvals(self) -> list[ApprovalRequest]:
         recovered: list[ApprovalRequest] = []

@@ -181,8 +181,7 @@ class PrivateAssistantAgent:
             return AgentReply(
                 intent=AgentIntent.DENY,
                 text=(
-                    f"Approval {approval.approval_id} is {approval.status.value}; "
-                    "cannot deny it."
+                    f"Approval {approval.approval_id} is {approval.status.value}; cannot deny it."
                 ),
             )
 
@@ -190,8 +189,7 @@ class PrivateAssistantAgent:
             return AgentReply(
                 intent=AgentIntent.APPROVE,
                 text=(
-                    f"Approval {approval.approval_id} is {approval.status.value}; "
-                    "cannot execute."
+                    f"Approval {approval.approval_id} is {approval.status.value}; cannot execute."
                 ),
             )
         return self._reply_for_action_result(
@@ -229,10 +227,7 @@ class PrivateAssistantAgent:
                 intent=AgentIntent.COMPUTER,
                 text=f"Computer task refused: {exc}",
             )
-        if (
-            result.approval is not None
-            and result.approval.status == ApprovalState.PENDING
-        ):
+        if result.approval is not None and result.approval.status == ApprovalState.PENDING:
             pending = result.approval
             return AgentReply(
                 intent=AgentIntent.COMPUTER,
