@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "copenguin"
+version = "0.1.0"
+description = "A local-first personal agent runtime with durable tasks, governed memory, executable knowledge, and safe action boundaries."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115.0",
+  "httpx>=0.28.0",
+  "pydantic>=2.9.0",
+  "uvicorn>=0.34.0",
+]
+
+[project.optional-dependencies]
+feishu = [
+  "lark-oapi>=1.4.18",
+]
+evolve = [
+  "evolve-memory @ git+https://github.com/2sao7sao/EvolveMemory.git",
+  "evolvekb @ git+https://github.com/2sao7sao/EvolveKB.git",
+]
+dev = [
+  "mypy>=1.11",
+  "pytest>=8",
+  "pytest-asyncio>=0.24",
+  "ruff>=0.4",
+]
+
+[project.scripts]
+copenguin = "copenguin.cli:main"
+# Temporary compatibility entry point for installations of the original MVP.
+feishu-agent = "feishu_computer_agent.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
