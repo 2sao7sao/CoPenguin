@@ -11,14 +11,17 @@ from super_agent_runtime import (
     AgentSnapshot,
     ApprovalState,
     ArtifactCAS,
+    ConcurrencyConflict,
     IdempotencyConflict,
     InboxCoordinator,
     InboxRouteType,
     IngressAdapter,
+    InvalidTransition,
     NotFound,
     SnapshotStore,
     SQLiteRuntimeRepository,
     ThreadCoordinator,
+    ThreadUpdateKind,
 )
 
 from .action_gateway import DurableComputerActionGateway
@@ -40,6 +43,15 @@ class LocalIngressRequest(BaseModel):
     current_thread_id: str | None = None
     active_thread_ids: tuple[str, ...] = ()
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class RouteDecisionRequest(BaseModel):
+    decision: str
+    actor_id: str = "owner"
+    platform: str = "local"
+    thread_id: str | None = None
+    update_kind: ThreadUpdateKind | None = None
+    reason: str = "user_route_decision"
 
 
 def _timestamp(value: datetime) -> str:
@@ -105,6 +117,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         computer_actions=computer_actions,
         risk_classifier=RiskClassifier(),
         approval_required=settings.approval_required,
+        inbox=inbox,
     )
     service = FeishuWebhookService(
         parser=FeishuEventParser(settings),
@@ -219,6 +232,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         except IdempotencyConflict as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ConcurrencyConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except NotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except InvalidTransition as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {
@@ -226,6 +245,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "duplicate": result.duplicate,
             "message": result.record.as_dict(),
         }
+
+    @app.post("/runtime/inbox/{message_key:path}/decision")
+    async def runtime_decide_inbox_route(
+        message_key: str,
+        payload: RouteDecisionRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        if not _is_loopback(request):
+            raise HTTPException(status_code=403, detail="route decisions require a loopback client")
+        try:
+            record = inbox.resolve_route(
+                message_key=message_key,
+                platform=payload.platform,
+                actor_id=payload.actor_id,
+                decision=payload.decision,
+                target_thread_id=payload.thread_id,
+                update_kind=payload.update_kind,
+                reason=payload.reason,
+            )
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except (ConcurrencyConflict, IdempotencyConflict) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except NotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except (InvalidTransition, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"message": record.as_dict()}
 
     @app.get("/runtime/approvals")
     async def runtime_approvals(
@@ -255,6 +302,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return await service.handle_payload(payload)
         except IdempotencyConflict as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ConcurrencyConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except NotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except InvalidTransition as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except FeishuPayloadError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except ValueError as exc:

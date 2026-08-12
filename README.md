@@ -50,7 +50,7 @@ a memory, skill, hook, or permission change, but it cannot promote itself.
 | Task isolation | Project → `TaskThread` → Run, with a single-writer rule per Thread |
 | Parallel work | Durable queue, worker leases, fencing tokens, shared/exclusive resource locks |
 | Recovery | Immutable Artifact CAS and Task/Agent/Context snapshots bound to each Run |
-| Inbox decisions | Chat, new task, task update, control, or confirmation-required ambiguity |
+| Inbox decisions | Chat, new task, durable task update, control, or owner-confirmed ambiguity |
 | External effects | Intent → approval → provider → Receipt, with crash reconciliation |
 | Operator views | Read-only projections for Threads, inbox routes, actions, and approvals |
 | Entry points | Local CLI plus Feishu webhook MVP with owner allowlist |
@@ -172,11 +172,13 @@ The first concrete recipe is specified in the
 [Feishu Memory and Knowledge System v0.1](docs/FEISHU_KNOWLEDGE_SYSTEM_SPEC_V0.1.md):
 an explicitly selected Feishu source becomes a verified Project Decision Record,
 then an accepted Delivery can be published to a Wiki draft through durable approval.
-The first implementation slice, [V2-001 Unified Ingress](docs/V2_001_UNIFIED_INGRESS.md),
-has passed its branch-level acceptance tests. The next slice,
-[V2-002 Durable Product Approvals](docs/V2_002_DURABLE_PRODUCT_APPROVALS.md), removes
-the product-path in-memory approval queue and binds computer actions to durable
-Intent, Approval, claim, observation Artifact, and Receipt records.
+The first three convergence slices have passed branch-level acceptance:
+[V2-001 Unified Ingress](docs/V2_001_UNIFIED_INGRESS.md) provides restart-safe message
+identity; [V2-002 Durable Product Approvals](docs/V2_002_DURABLE_PRODUCT_APPROVALS.md)
+binds computer actions to durable Intent, Approval, claim, Artifact, and Receipt
+records; [V2-003 Durable Thread Updates](docs/V2_003_DURABLE_THREAD_UPDATES.md) makes
+supplements, goal changes, method Branches, cancellation, and ambiguous route decisions
+durable. V2-004 is the next ordered slice.
 
 ## Stable vs Prototype
 
@@ -187,6 +189,8 @@ Intent, Approval, claim, observation Artifact, and Receipt records.
 - durable scheduling, lease fencing, resource conflicts, and checkpoint recovery;
 - Feishu/local unified ingress, restart-safe inbound dedupe, normalized message
   Artifacts, and conservative persistent route decisions;
+- durable Thread updates with immutable replacement snapshots/Runs, method-change
+  Branch lineage, cancellation propagation, and owner-only route resolution;
 - durable Action Intents, Receipts, approvals, expiry, and reconciliation;
 - `/computer`, `/approve`, and `/deny` use the durable action boundary; requester-only
   policy snapshots and decision-evidence Artifacts survive restart;
@@ -210,6 +214,9 @@ Intent, Approval, claim, observation Artifact, and Receipt records.
 - `/computer <task>`
 - `/approve <id>`
 - `/deny <id>`
+- `/thread <thread-id> <supplement, goal change, method change, or cancellation>`
+- `/route <message-key> thread <thread-id> [supplement|goal|method|cancel]`
+- `/route <message-key> new|dismiss`
 
 ## Repository Map
 

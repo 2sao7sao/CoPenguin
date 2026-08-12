@@ -27,6 +27,8 @@ from .models import (
     ApprovalRequest,
     ApprovalState,
     AttentionState,
+    BranchProjection,
+    BranchStatus,
     DesiredState,
     EventDraft,
     EventEnvelope,
@@ -42,6 +44,9 @@ from .models import (
     TaskSubmission,
     ThreadProjection,
     ThreadState,
+    ThreadUpdateKind,
+    ThreadUpdateProjection,
+    ThreadUpdateSubmission,
     WorkerClaim,
     canonical_json,
     to_timestamp,
@@ -238,7 +243,12 @@ class SQLiteRuntimeRepository:
                     rationale TEXT NOT NULL,
                     domain TEXT NOT NULL,
                     requires_confirmation INTEGER NOT NULL,
-                    created_at TEXT NOT NULL
+                    created_at TEXT NOT NULL,
+                    update_kind TEXT,
+                    candidate_thread_ids_json TEXT NOT NULL DEFAULT '[]',
+                    updated_at TEXT NOT NULL,
+                    resolved_by TEXT,
+                    resolution_reason TEXT
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_inbox_route
@@ -302,6 +312,24 @@ class SQLiteRuntimeRepository:
                     "ALTER TABLE inbox_messages "
                     "ADD COLUMN message_artifact_id TEXT NOT NULL DEFAULT ''"
                 )
+            if "update_kind" not in inbox_columns:
+                connection.execute("ALTER TABLE inbox_messages ADD COLUMN update_kind TEXT")
+            if "candidate_thread_ids_json" not in inbox_columns:
+                connection.execute(
+                    "ALTER TABLE inbox_messages "
+                    "ADD COLUMN candidate_thread_ids_json TEXT NOT NULL DEFAULT '[]'"
+                )
+            if "updated_at" not in inbox_columns:
+                connection.execute(
+                    "ALTER TABLE inbox_messages ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''"
+                )
+                connection.execute(
+                    "UPDATE inbox_messages SET updated_at = created_at WHERE updated_at = ''"
+                )
+            if "resolved_by" not in inbox_columns:
+                connection.execute("ALTER TABLE inbox_messages ADD COLUMN resolved_by TEXT")
+            if "resolution_reason" not in inbox_columns:
+                connection.execute("ALTER TABLE inbox_messages ADD COLUMN resolution_reason TEXT")
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_inbox_project "
                 "ON inbox_messages(project_id, created_at)"
@@ -325,6 +353,10 @@ class SQLiteRuntimeRepository:
             connection.execute(
                 "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
                 (5, to_timestamp(self._clock())),
+            )
+            connection.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                (6, to_timestamp(self._clock())),
             )
 
     # ------------------------------------------------------------------
@@ -1530,8 +1562,9 @@ class SQLiteRuntimeRepository:
         record: InboxRecord,
         *,
         task_submission: TaskSubmission | None = None,
+        thread_update_submission: ThreadUpdateSubmission | None = None,
     ) -> tuple[InboxRecord, bool]:
-        """Atomically persist one inbound route and its optional first Task submission."""
+        """Atomically persist one inbound route and its confirmed durable effect."""
         if not record.text_artifact_id.startswith("artifact:sha256:"):
             raise ValueError("text_artifact_id must be an Artifact CAS reference")
         if not record.message_artifact_id.startswith("artifact:sha256:"):
@@ -1547,6 +1580,24 @@ class SQLiteRuntimeRepository:
                 raise ValueError("inbox route and Task submission must target the same project")
             if task_submission.correlation_id != record.message_key:
                 raise ValueError("Task submission correlation must use the inbound message key")
+        if thread_update_submission is not None:
+            if record.route_type != InboxRouteType.THREAD_UPDATE:
+                raise ValueError("only a thread-update route may include a Thread update")
+            if record.route_state not in {
+                InboxRouteState.CONFIRMED,
+                InboxRouteState.CORRECTED,
+            }:
+                raise ValueError("a Thread update requires a confirmed or corrected route")
+            if record.thread_id != thread_update_submission.thread_id:
+                raise ValueError("inbox route and Thread update must target the same thread")
+            if record.project_id != thread_update_submission.project_id:
+                raise ValueError("inbox route and Thread update must target the same project")
+            if record.message_key != thread_update_submission.message_key:
+                raise ValueError("Thread update correlation must use the inbound message key")
+            if record.update_kind != thread_update_submission.update_kind:
+                raise ValueError("inbox route and Thread update kind must match")
+        if task_submission is not None and thread_update_submission is not None:
+            raise ValueError("one inbound route cannot create a Task and update a Thread")
 
         with self._transaction() as connection:
             existing = connection.execute(
@@ -1564,8 +1615,10 @@ class SQLiteRuntimeRepository:
                     message_key, payload_hash, platform, message_id, chat_id, actor_id,
                     project_id, message_artifact_id, text_artifact_id, route_type,
                     route_state, thread_id,
-                    confidence, rationale, domain, requires_confirmation, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    confidence, rationale, domain, requires_confirmation, created_at,
+                    update_kind, candidate_thread_ids_json, updated_at,
+                    resolved_by, resolution_reason
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.message_key,
@@ -1585,6 +1638,11 @@ class SQLiteRuntimeRepository:
                     record.domain,
                     int(record.requires_confirmation),
                     record.created_at,
+                    record.update_kind.value if record.update_kind is not None else None,
+                    canonical_json(list(record.candidate_thread_ids)),
+                    record.updated_at or record.created_at,
+                    record.resolved_by,
+                    record.resolution_reason,
                 ),
             )
             received = self._insert_event(
@@ -1628,6 +1686,10 @@ class SQLiteRuntimeRepository:
                         "rationale": record.rationale,
                         "domain": record.domain,
                         "requires_confirmation": record.requires_confirmation,
+                        "update_kind": (
+                            record.update_kind.value if record.update_kind is not None else None
+                        ),
+                        "candidate_thread_ids": list(record.candidate_thread_ids),
                     },
                 ),
             )
@@ -1651,15 +1713,757 @@ class SQLiteRuntimeRepository:
                         },
                     ),
                 )
+            if record.route_type == InboxRouteType.CHAT:
+                self._insert_event(
+                    connection,
+                    EventDraft(
+                        stream_type="conversation",
+                        stream_id=f"{record.platform}:{record.chat_id}",
+                        project_id=record.project_id,
+                        correlation_id=record.message_key,
+                        causation_id=proposed.event_id,
+                        event_type="conversation.message_appended",
+                        actor=record.actor_id,
+                        occurred_at=record.created_at,
+                        payload={
+                            "message_key": record.message_key,
+                            "message_artifact_id": record.message_artifact_id,
+                            "text_artifact_id": record.text_artifact_id,
+                        },
+                    ),
+                )
             if task_submission is not None:
                 self._submit_task_in_transaction(
                     connection,
                     task_submission,
                     now=to_timestamp(self._clock()),
                 )
+            if thread_update_submission is not None:
+                self._apply_thread_update_in_transaction(connection, thread_update_submission)
             return record, True
 
+    def resolve_inbox_route(
+        self,
+        record: InboxRecord,
+        *,
+        resolver: str,
+        resolution_reason: str,
+        task_submission: TaskSubmission | None = None,
+        thread_update_submission: ThreadUpdateSubmission | None = None,
+    ) -> InboxRecord:
+        """Resolve one proposed route and commit its effect in the same transaction."""
+        if record.route_state not in {
+            InboxRouteState.CONFIRMED,
+            InboxRouteState.CORRECTED,
+            InboxRouteState.EXPIRED,
+        }:
+            raise ValueError("a route resolution must be confirmed, corrected, or expired")
+        if not resolver.strip() or not resolution_reason.strip():
+            raise ValueError("resolver and resolution_reason are required")
+        if record.resolved_by != resolver:
+            raise ValueError("resolved_by must match the route resolver")
+        if not record.updated_at:
+            raise ValueError("a route resolution requires updated_at")
+        if record.requires_confirmation:
+            raise ValueError("a resolved Inbox record cannot still require confirmation")
+        if record.route_state == InboxRouteState.EXPIRED:
+            if task_submission is not None or thread_update_submission is not None:
+                raise ValueError("an expired route cannot apply a durable effect")
+        elif record.route_type == InboxRouteType.NEW_TASK:
+            if task_submission is None or thread_update_submission is not None:
+                raise ValueError("a resolved new-task route requires one Task submission")
+        elif record.route_type == InboxRouteType.THREAD_UPDATE:
+            if thread_update_submission is None or task_submission is not None:
+                raise ValueError("a resolved Thread route requires one Thread update")
+        elif task_submission is not None or thread_update_submission is not None:
+            raise ValueError("the resolved route type does not accept a Task effect")
+
+        if task_submission is not None:
+            if record.thread_id != task_submission.thread_id:
+                raise ValueError("inbox route and Task submission must target the same thread")
+            if record.project_id != task_submission.project_id:
+                raise ValueError("inbox route and Task submission must target the same project")
+            if task_submission.correlation_id != record.message_key:
+                raise ValueError("Task submission correlation must use the inbound message key")
+        if thread_update_submission is not None:
+            if record.thread_id != thread_update_submission.thread_id:
+                raise ValueError("inbox route and Thread update must target the same thread")
+            if record.project_id != thread_update_submission.project_id:
+                raise ValueError("inbox route and Thread update must target the same project")
+            if record.message_key != thread_update_submission.message_key:
+                raise ValueError("Thread update correlation must use the inbound message key")
+            if record.update_kind != thread_update_submission.update_kind:
+                raise ValueError("inbox route and Thread update kind must match")
+
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM inbox_messages WHERE message_key = ?",
+                (record.message_key,),
+            ).fetchone()
+            if row is None:
+                raise NotFound(f"inbox message not found: {record.message_key}")
+            stored = self._row_to_inbox_record(row)
+            self._assert_same_inbound(record, stored)
+            expected_resolver = f"{stored.platform}:{stored.actor_id}"
+            if resolver != expected_resolver:
+                raise PermissionError("only the original channel actor may resolve this route")
+            if (
+                record.project_id != stored.project_id
+                or record.message_artifact_id != stored.message_artifact_id
+            ):
+                raise IdempotencyConflict("route resolution changed the durable inbound envelope")
+            if stored.route_state != InboxRouteState.PROPOSED:
+                if self._same_route_resolution(stored, record):
+                    return stored
+                raise ConcurrencyConflict(
+                    f"inbox route {record.message_key} is already {stored.route_state.value}"
+                )
+
+            connection.execute(
+                """
+                UPDATE inbox_messages
+                SET route_type = ?, route_state = ?, thread_id = ?, confidence = ?,
+                    rationale = ?, domain = ?, requires_confirmation = 0,
+                    update_kind = ?, candidate_thread_ids_json = ?, updated_at = ?,
+                    resolved_by = ?, resolution_reason = ?
+                WHERE message_key = ? AND route_state = ?
+                """,
+                (
+                    record.route_type.value,
+                    record.route_state.value,
+                    record.thread_id,
+                    record.confidence,
+                    record.rationale,
+                    record.domain,
+                    record.update_kind.value if record.update_kind is not None else None,
+                    canonical_json(list(record.candidate_thread_ids)),
+                    record.updated_at,
+                    resolver,
+                    resolution_reason,
+                    record.message_key,
+                    InboxRouteState.PROPOSED.value,
+                ),
+            )
+            cause = connection.execute(
+                """
+                SELECT event_id FROM runtime_events
+                WHERE stream_type = 'inbox' AND stream_id = ?
+                ORDER BY sequence DESC LIMIT 1
+                """,
+                (record.message_key,),
+            ).fetchone()
+            event_type = {
+                InboxRouteState.CONFIRMED: "inbox.route_confirmed",
+                InboxRouteState.CORRECTED: "inbox.route_corrected",
+                InboxRouteState.EXPIRED: "inbox.route_expired",
+            }[record.route_state]
+            self._insert_event(
+                connection,
+                EventDraft(
+                    stream_type="inbox",
+                    stream_id=record.message_key,
+                    project_id=record.project_id,
+                    thread_id=record.thread_id,
+                    correlation_id=record.message_key,
+                    causation_id=str(cause["event_id"]) if cause is not None else None,
+                    event_type=event_type,
+                    actor=resolver,
+                    occurred_at=record.updated_at,
+                    payload={
+                        "from_route_type": stored.route_type.value,
+                        "to_route_type": record.route_type.value,
+                        "route_state": record.route_state.value,
+                        "thread_id": record.thread_id,
+                        "update_kind": (
+                            record.update_kind.value if record.update_kind is not None else None
+                        ),
+                        "reason": resolution_reason,
+                    },
+                ),
+            )
+            if task_submission is not None:
+                self._submit_task_in_transaction(
+                    connection,
+                    task_submission,
+                    now=record.updated_at,
+                )
+            if thread_update_submission is not None:
+                self._apply_thread_update_in_transaction(connection, thread_update_submission)
+            resolved = connection.execute(
+                "SELECT * FROM inbox_messages WHERE message_key = ?",
+                (record.message_key,),
+            ).fetchone()
+            assert resolved is not None
+            return self._row_to_inbox_record(resolved)
+
+    def _same_route_resolution(self, stored: InboxRecord, candidate: InboxRecord) -> bool:
+        return (
+            stored.route_type == candidate.route_type
+            and stored.route_state == candidate.route_state
+            and stored.thread_id == candidate.thread_id
+            and stored.update_kind == candidate.update_kind
+            and stored.resolved_by == candidate.resolved_by
+        )
+
+    def _apply_thread_update_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        submission: ThreadUpdateSubmission,
+    ) -> ThreadProjection:
+        if not submission.message_artifact_id.startswith("artifact:sha256:"):
+            raise ValueError("message_artifact_id must be an Artifact CAS reference")
+        if not submission.text_artifact_id.startswith("artifact:sha256:"):
+            raise ValueError("text_artifact_id must be an Artifact CAS reference")
+        projection = self._get_thread_in_transaction(connection, submission.thread_id)
+        if projection is None:
+            raise NotFound(f"thread not found: {submission.thread_id}")
+        if projection.project_id != submission.project_id:
+            raise InvalidTransition("Thread update cannot cross Project boundaries")
+        if projection.revision != submission.expected_revision:
+            raise ConcurrencyConflict(
+                f"thread {submission.thread_id} revision is {projection.revision}; "
+                f"expected {submission.expected_revision}"
+            )
+        if projection.actual_state in {ThreadState.CANCELLED, ThreadState.ARCHIVED}:
+            raise InvalidTransition(
+                "cancelled or archived Threads cannot receive executable updates"
+            )
+        if (
+            submission.update_kind != ThreadUpdateKind.CANCEL
+            and projection.desired_state != DesiredState.RUN
+        ):
+            raise InvalidTransition(
+                f"thread desired state is {projection.desired_state}; update cannot enqueue a Run"
+            )
+
+        snapshot_ids = (
+            submission.task_snapshot_id,
+            submission.agent_snapshot_id,
+            submission.context_manifest_id,
+        )
+        if submission.update_kind == ThreadUpdateKind.CANCEL:
+            if submission.new_run_id is not None or any(snapshot_ids):
+                raise ValueError("a cancellation update cannot create a Run")
+        elif submission.new_run_id is None or not all(snapshot_ids):
+            raise ValueError("an executable Thread update requires a Run and frozen snapshots")
+
+        source_branch_id = projection.current_branch_id
+        message_event = self._insert_event(
+            connection,
+            EventDraft(
+                stream_type="thread",
+                stream_id=submission.thread_id,
+                project_id=submission.project_id,
+                thread_id=submission.thread_id,
+                branch_id=source_branch_id,
+                correlation_id=submission.message_key,
+                event_type="thread.message_appended",
+                actor=submission.actor,
+                occurred_at=submission.occurred_at,
+                payload={
+                    "update_id": submission.message_key,
+                    "message_key": submission.message_key,
+                    "message_artifact_id": submission.message_artifact_id,
+                    "text_artifact_id": submission.text_artifact_id,
+                    "update_kind": submission.update_kind.value,
+                    "actor_id": submission.actor,
+                    "branch_id": source_branch_id,
+                    "task_snapshot_id": submission.task_snapshot_id,
+                    "context_manifest_id": submission.context_manifest_id,
+                    "new_run_id": submission.new_run_id,
+                },
+            ),
+        )
+        projection = reduce_thread(projection, message_event)
+
+        if submission.update_kind == ThreadUpdateKind.CANCEL:
+            if projection.actual_state == ThreadState.DELIVERED:
+                raise InvalidTransition("a delivered Thread cannot be cancelled as active work")
+            if projection.desired_state != DesiredState.CANCEL:
+                event = self._insert_event(
+                    connection,
+                    EventDraft(
+                        stream_type="thread",
+                        stream_id=submission.thread_id,
+                        project_id=submission.project_id,
+                        thread_id=submission.thread_id,
+                        branch_id=projection.current_branch_id,
+                        correlation_id=submission.message_key,
+                        causation_id=message_event.event_id,
+                        event_type="thread.desired_state_changed",
+                        actor=submission.actor,
+                        occurred_at=submission.occurred_at,
+                        payload={
+                            "from": projection.desired_state.value,
+                            "to": DesiredState.CANCEL.value,
+                            "reason": "user_cancelled",
+                        },
+                    ),
+                )
+                projection = reduce_thread(projection, event)
+            projection = self._cancel_runs_for_update(
+                connection,
+                projection,
+                tuple(run.run_id for run in projection.runs),
+                actor=submission.actor,
+                correlation_id=submission.message_key,
+                reason="user_cancelled",
+                occurred_at=submission.occurred_at,
+            )
+            if projection.actual_state != ThreadState.CANCELLED:
+                event = self._insert_event(
+                    connection,
+                    EventDraft(
+                        stream_type="thread",
+                        stream_id=submission.thread_id,
+                        project_id=submission.project_id,
+                        thread_id=submission.thread_id,
+                        branch_id=projection.current_branch_id,
+                        correlation_id=submission.message_key,
+                        event_type="thread.state_changed",
+                        actor=submission.actor,
+                        occurred_at=submission.occurred_at,
+                        payload={
+                            "from": projection.actual_state.value,
+                            "to": ThreadState.CANCELLED.value,
+                            "reason": "user_cancelled",
+                        },
+                    ),
+                )
+                projection = reduce_thread(projection, event)
+            self._upsert_thread_projection(connection, projection)
+            return projection
+
+        projection = self._cancel_runs_for_update(
+            connection,
+            projection,
+            submission.supersedes_run_ids,
+            actor=submission.actor,
+            correlation_id=submission.message_key,
+            reason=f"superseded_by_{submission.update_kind.value}",
+            occurred_at=submission.occurred_at,
+        )
+
+        target_branch_id = submission.branch_id or projection.current_branch_id
+        if submission.forked_from_branch_id is not None:
+            if not all(
+                (
+                    submission.forked_from_event_id,
+                    submission.base_snapshot_hash,
+                    submission.reason_code,
+                )
+            ):
+                raise ValueError("a forked branch requires event, snapshot, and reason evidence")
+            forked = self._insert_event(
+                connection,
+                EventDraft(
+                    stream_type="thread",
+                    stream_id=submission.thread_id,
+                    project_id=submission.project_id,
+                    thread_id=submission.thread_id,
+                    branch_id=target_branch_id,
+                    correlation_id=submission.message_key,
+                    causation_id=message_event.event_id,
+                    event_type="thread.branch_forked",
+                    actor=submission.actor,
+                    occurred_at=submission.occurred_at,
+                    payload={
+                        "branch_id": target_branch_id,
+                        "forked_from_branch_id": submission.forked_from_branch_id,
+                        "forked_from_event_id": submission.forked_from_event_id,
+                        "base_snapshot_hash": submission.base_snapshot_hash,
+                        "reason_code": submission.reason_code,
+                    },
+                ),
+            )
+            projection = reduce_thread(projection, forked)
+            selected = self._insert_event(
+                connection,
+                EventDraft(
+                    stream_type="thread",
+                    stream_id=submission.thread_id,
+                    project_id=submission.project_id,
+                    thread_id=submission.thread_id,
+                    branch_id=target_branch_id,
+                    correlation_id=submission.message_key,
+                    causation_id=forked.event_id,
+                    event_type="thread.branch_selected",
+                    actor=submission.actor,
+                    occurred_at=submission.occurred_at,
+                    payload={
+                        "branch_id": target_branch_id,
+                        "reason_code": submission.reason_code,
+                    },
+                ),
+            )
+            projection = reduce_thread(projection, selected)
+
+        assert submission.new_run_id is not None
+        run_created = self._insert_event(
+            connection,
+            EventDraft(
+                stream_type="thread",
+                stream_id=submission.thread_id,
+                project_id=submission.project_id,
+                thread_id=submission.thread_id,
+                branch_id=target_branch_id,
+                run_id=submission.new_run_id,
+                correlation_id=submission.message_key,
+                causation_id=message_event.event_id,
+                event_type="run.created",
+                actor=submission.actor,
+                occurred_at=submission.occurred_at,
+                payload={
+                    "run_id": submission.new_run_id,
+                    "branch_id": target_branch_id,
+                    "supersedes_run_id": submission.supersedes_run_id,
+                },
+            ),
+        )
+        projection = reduce_thread(projection, run_created)
+        snapshots_bound = self._insert_event(
+            connection,
+            EventDraft(
+                stream_type="thread",
+                stream_id=submission.thread_id,
+                project_id=submission.project_id,
+                thread_id=submission.thread_id,
+                branch_id=target_branch_id,
+                run_id=submission.new_run_id,
+                correlation_id=submission.message_key,
+                causation_id=run_created.event_id,
+                event_type="run.snapshots_bound",
+                actor="context-compiler",
+                occurred_at=submission.occurred_at,
+                payload={
+                    "run_id": submission.new_run_id,
+                    "task_snapshot_id": submission.task_snapshot_id,
+                    "agent_snapshot_id": submission.agent_snapshot_id,
+                    "context_manifest_id": submission.context_manifest_id,
+                },
+            ),
+        )
+        projection = reduce_thread(projection, snapshots_bound)
+        queued = self._insert_event(
+            connection,
+            EventDraft(
+                stream_type="thread",
+                stream_id=submission.thread_id,
+                project_id=submission.project_id,
+                thread_id=submission.thread_id,
+                branch_id=target_branch_id,
+                run_id=submission.new_run_id,
+                correlation_id=submission.message_key,
+                causation_id=snapshots_bound.event_id,
+                event_type="run.state_changed",
+                actor="scheduler",
+                occurred_at=submission.occurred_at,
+                payload={
+                    "run_id": submission.new_run_id,
+                    "from": RunState.CREATED.value,
+                    "to": RunState.QUEUED.value,
+                },
+            ),
+        )
+        projection = reduce_thread(projection, queued)
+        if projection.actual_state in {
+            ThreadState.CREATED,
+            ThreadState.DORMANT,
+            ThreadState.RUNNING,
+            ThreadState.WAITING_USER,
+            ThreadState.WAITING_APPROVAL,
+            ThreadState.WAITING_RECEIPT,
+            ThreadState.WAITING_DEPENDENCY,
+            ThreadState.WAITING_RESOURCE,
+            ThreadState.VERIFYING,
+            ThreadState.DELIVERED,
+            ThreadState.FAILED,
+            ThreadState.PAUSED,
+        }:
+            event = self._insert_event(
+                connection,
+                EventDraft(
+                    stream_type="thread",
+                    stream_id=submission.thread_id,
+                    project_id=submission.project_id,
+                    thread_id=submission.thread_id,
+                    branch_id=target_branch_id,
+                    run_id=submission.new_run_id,
+                    correlation_id=submission.message_key,
+                    causation_id=queued.event_id,
+                    event_type="thread.state_changed",
+                    actor="scheduler",
+                    occurred_at=submission.occurred_at,
+                    payload={
+                        "from": projection.actual_state.value,
+                        "to": ThreadState.QUEUED.value,
+                    },
+                ),
+            )
+            projection = reduce_thread(projection, event)
+
+        self._upsert_thread_projection(connection, projection)
+        connection.execute(
+            """
+            INSERT INTO scheduler_jobs(
+                run_id, thread_id, state, priority, available_at, attempts,
+                max_attempts, fencing_token, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, 0, ?, 0, ?, ?)
+            """,
+            (
+                submission.new_run_id,
+                submission.thread_id,
+                JobState.QUEUED.value,
+                submission.priority,
+                submission.occurred_at,
+                submission.max_attempts,
+                submission.occurred_at,
+                submission.occurred_at,
+            ),
+        )
+        self._insert_event(
+            connection,
+            EventDraft(
+                stream_type="scheduler-run",
+                stream_id=submission.new_run_id,
+                project_id=submission.project_id,
+                thread_id=submission.thread_id,
+                branch_id=target_branch_id,
+                run_id=submission.new_run_id,
+                correlation_id=submission.message_key,
+                event_type="scheduler.run_enqueued",
+                actor="scheduler",
+                occurred_at=submission.occurred_at,
+                payload={
+                    "priority": submission.priority,
+                    "available_at": submission.occurred_at,
+                    "max_attempts": submission.max_attempts,
+                },
+            ),
+        )
+        return projection
+
+    def _cancel_runs_for_update(
+        self,
+        connection: sqlite3.Connection,
+        projection: ThreadProjection,
+        run_ids: Iterable[str],
+        *,
+        actor: str,
+        correlation_id: str,
+        reason: str,
+        occurred_at: str,
+    ) -> ThreadProjection:
+        terminal = {
+            RunState.COMPLETED,
+            RunState.PARTIAL,
+            RunState.FAILED,
+            RunState.QUARANTINED,
+            RunState.CANCELLED,
+        }
+        for run_id in dict.fromkeys(run_ids):
+            run = projection.run(run_id)
+            if run is None or run.state in terminal:
+                continue
+            self._cancel_pending_run_actions(
+                connection,
+                run_id=run.run_id,
+                thread_id=projection.thread_id,
+                actor=actor,
+                reason=reason,
+                occurred_at=occurred_at,
+                correlation_id=correlation_id,
+            )
+            event = self._insert_event(
+                connection,
+                EventDraft(
+                    stream_type="thread",
+                    stream_id=projection.thread_id,
+                    project_id=projection.project_id,
+                    thread_id=projection.thread_id,
+                    branch_id=run.branch_id,
+                    run_id=run.run_id,
+                    correlation_id=correlation_id,
+                    event_type="run.state_changed",
+                    actor=actor,
+                    occurred_at=occurred_at,
+                    payload={
+                        "run_id": run.run_id,
+                        "from": run.state.value,
+                        "to": RunState.CANCELLED.value,
+                        "reason": reason,
+                    },
+                ),
+            )
+            projection = reduce_thread(projection, event)
+            job = connection.execute(
+                "SELECT * FROM scheduler_jobs WHERE run_id = ?",
+                (run.run_id,),
+            ).fetchone()
+            if job is not None and str(job["state"]) in {
+                JobState.QUEUED.value,
+                JobState.CLAIMED.value,
+            }:
+                connection.execute(
+                    """
+                    UPDATE scheduler_jobs
+                    SET state = ?, lease_owner = NULL, lease_id = NULL,
+                        lease_expires_at = NULL, updated_at = ?
+                    WHERE run_id = ?
+                    """,
+                    (JobState.CANCELLED.value, occurred_at, run.run_id),
+                )
+                self._insert_event(
+                    connection,
+                    EventDraft(
+                        stream_type="scheduler-run",
+                        stream_id=run.run_id,
+                        project_id=projection.project_id,
+                        thread_id=projection.thread_id,
+                        branch_id=run.branch_id,
+                        run_id=run.run_id,
+                        correlation_id=correlation_id,
+                        event_type="scheduler.run_cancelled",
+                        actor=actor,
+                        occurred_at=occurred_at,
+                        payload={
+                            "from": str(job["state"]),
+                            "reason": reason,
+                            "fencing_token": int(job["fencing_token"]),
+                        },
+                    ),
+                )
+        if projection.attention_state == AttentionState.NEEDS_APPROVAL:
+            pending = connection.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM runtime_approvals AS approval
+                JOIN action_intents AS intent ON intent.intent_id = approval.intent_id
+                WHERE intent.thread_id = ? AND approval.status = ?
+                """,
+                (projection.thread_id, ApprovalState.PENDING.value),
+            ).fetchone()
+            assert pending is not None
+            if int(pending["count"]) == 0:
+                event = self._insert_event(
+                    connection,
+                    EventDraft(
+                        stream_type="thread",
+                        stream_id=projection.thread_id,
+                        project_id=projection.project_id,
+                        thread_id=projection.thread_id,
+                        branch_id=projection.current_branch_id,
+                        run_id=projection.active_run_id,
+                        correlation_id=correlation_id,
+                        event_type="thread.attention_changed",
+                        actor=actor,
+                        occurred_at=occurred_at,
+                        payload={
+                            "from": projection.attention_state.value,
+                            "to": AttentionState.NONE.value,
+                            "reason": "superseded approvals cancelled",
+                        },
+                    ),
+                )
+                projection = reduce_thread(projection, event)
+        return projection
+
+    def _cancel_pending_run_actions(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        run_id: str,
+        thread_id: str,
+        actor: str,
+        reason: str,
+        occurred_at: str,
+        correlation_id: str,
+    ) -> None:
+        intents = connection.execute(
+            "SELECT * FROM action_intents WHERE run_id = ? AND status = ?",
+            (run_id, ActionStatus.PENDING.value),
+        ).fetchall()
+        for intent in intents:
+            approvals = connection.execute(
+                """
+                SELECT * FROM runtime_approvals
+                WHERE intent_id = ? AND status = ?
+                """,
+                (intent["intent_id"], ApprovalState.PENDING.value),
+            ).fetchall()
+            for approval in approvals:
+                connection.execute(
+                    """
+                    UPDATE runtime_approvals
+                    SET status = ?, updated_at = ?, resolved_by = ?, resolved_at = ?
+                    WHERE approval_id = ? AND status = ?
+                    """,
+                    (
+                        ApprovalState.CANCELLED.value,
+                        occurred_at,
+                        actor,
+                        occurred_at,
+                        approval["approval_id"],
+                        ApprovalState.PENDING.value,
+                    ),
+                )
+                self._insert_event(
+                    connection,
+                    EventDraft(
+                        stream_type="approval",
+                        stream_id=str(approval["approval_id"]),
+                        thread_id=thread_id,
+                        run_id=run_id,
+                        correlation_id=correlation_id,
+                        event_type="approval.cancelled",
+                        actor=actor,
+                        occurred_at=occurred_at,
+                        payload={
+                            "approval_id": approval["approval_id"],
+                            "intent_id": intent["intent_id"],
+                            "reason": reason,
+                        },
+                    ),
+                )
+            connection.execute(
+                """
+                UPDATE action_intents
+                SET status = ?, last_error = ?, updated_at = ?
+                WHERE intent_id = ? AND status = ?
+                """,
+                (
+                    ActionStatus.CANCELLED.value,
+                    reason,
+                    occurred_at,
+                    intent["intent_id"],
+                    ActionStatus.PENDING.value,
+                ),
+            )
+            self._insert_event(
+                connection,
+                EventDraft(
+                    stream_type="action",
+                    stream_id=str(intent["intent_id"]),
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    correlation_id=correlation_id,
+                    event_type="action.cancelled",
+                    actor=actor,
+                    occurred_at=occurred_at,
+                    payload={
+                        "intent_id": intent["intent_id"],
+                        "reason": reason,
+                    },
+                ),
+            )
+
     def record_inbox_route(self, record: InboxRecord) -> InboxRecord:
+        if record.route_state in {InboxRouteState.CONFIRMED, InboxRouteState.CORRECTED} and (
+            record.route_type in {InboxRouteType.NEW_TASK, InboxRouteType.THREAD_UPDATE}
+        ):
+            raise ValueError(
+                "confirmed Task routes must use accept_inbox_route with their durable effect"
+            )
         stored, _ = self.accept_inbox_route(record)
         return stored
 
@@ -1713,6 +2517,45 @@ class SQLiteRuntimeRepository:
                 values,
             ).fetchall()
         return [self._row_to_inbox_record(row) for row in rows]
+
+    def list_active_thread_ids_for_chat(
+        self,
+        *,
+        platform: str,
+        chat_id: str,
+        project_id: str,
+        limit: int = 10,
+    ) -> tuple[str, ...]:
+        if limit < 1:
+            raise ValueError("limit must be at least 1")
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT inbox.thread_id, MAX(inbox.updated_at) AS latest_at
+                FROM inbox_messages AS inbox
+                JOIN thread_projections AS thread ON thread.thread_id = inbox.thread_id
+                WHERE inbox.platform = ? AND inbox.chat_id = ? AND inbox.project_id = ?
+                  AND inbox.thread_id IS NOT NULL
+                  AND inbox.route_state IN (?, ?)
+                  AND thread.actual_state NOT IN (?, ?)
+                  AND thread.desired_state = ?
+                GROUP BY inbox.thread_id
+                ORDER BY latest_at DESC, inbox.thread_id ASC
+                LIMIT ?
+                """,
+                (
+                    platform,
+                    chat_id,
+                    project_id,
+                    InboxRouteState.CONFIRMED.value,
+                    InboxRouteState.CORRECTED.value,
+                    ThreadState.CANCELLED.value,
+                    ThreadState.ARCHIVED.value,
+                    DesiredState.RUN.value,
+                    limit,
+                ),
+            ).fetchall()
+        return tuple(str(row["thread_id"]) for row in rows)
 
     # ------------------------------------------------------------------
     # Persistent approval gate for external action Intents
@@ -2620,8 +3463,42 @@ class SQLiteRuntimeRepository:
                 latest_checkpoint_id=item.get("latest_checkpoint_id"),
                 checkpoint_sequence=int(item.get("checkpoint_sequence", 0)),
                 error=item.get("error"),
+                created_at=item.get("created_at", ""),
+                created_sequence=int(item.get("created_sequence", 0)),
+                supersedes_run_id=item.get("supersedes_run_id"),
             )
             for item in data.get("runs", [])
+        )
+        branches = tuple(
+            BranchProjection(
+                branch_id=item["branch_id"],
+                status=BranchStatus(item["status"]),
+                created_by=item["created_by"],
+                created_at=item["created_at"],
+                forked_from_branch_id=item.get("forked_from_branch_id"),
+                forked_from_event_id=item.get("forked_from_event_id"),
+                base_snapshot_hash=item.get("base_snapshot_hash"),
+                reason_code=item.get("reason_code"),
+                selected_at=item.get("selected_at"),
+                rejected_at=item.get("rejected_at"),
+            )
+            for item in data.get("branches", [])
+        )
+        updates = tuple(
+            ThreadUpdateProjection(
+                update_id=item["update_id"],
+                message_key=item["message_key"],
+                message_artifact_id=item["message_artifact_id"],
+                text_artifact_id=item["text_artifact_id"],
+                kind=ThreadUpdateKind(item["kind"]),
+                actor_id=item["actor_id"],
+                branch_id=item["branch_id"],
+                occurred_at=item["occurred_at"],
+                task_snapshot_id=item.get("task_snapshot_id"),
+                context_manifest_id=item.get("context_manifest_id"),
+                new_run_id=item.get("new_run_id"),
+            )
+            for item in data.get("updates", [])
         )
         return ThreadProjection(
             thread_id=data["thread_id"],
@@ -2640,6 +3517,8 @@ class SQLiteRuntimeRepository:
             updated_at=data.get("updated_at", ""),
             metadata=dict(data.get("metadata") or {}),
             runs=runs,
+            branches=branches,
+            updates=updates,
         )
 
     def _row_to_event(self, row: sqlite3.Row) -> EventEnvelope:
@@ -2745,6 +3624,13 @@ class SQLiteRuntimeRepository:
             domain=str(row["domain"]),
             requires_confirmation=bool(row["requires_confirmation"]),
             created_at=str(row["created_at"]),
+            update_kind=(ThreadUpdateKind(str(row["update_kind"])) if row["update_kind"] else None),
+            candidate_thread_ids=tuple(
+                str(item) for item in json.loads(str(row["candidate_thread_ids_json"] or "[]"))
+            ),
+            updated_at=str(row["updated_at"] or row["created_at"]),
+            resolved_by=row["resolved_by"],
+            resolution_reason=row["resolution_reason"],
         )
 
     def _row_to_approval(self, row: sqlite3.Row) -> ApprovalRequest:

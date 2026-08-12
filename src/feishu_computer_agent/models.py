@@ -20,6 +20,7 @@ class AgentIntent(StrEnum):
     APPROVE = "approve"
     DENY = "deny"
     STATUS = "status"
+    ROUTE = "route"
 
 
 class RiskLevel(StrEnum):
@@ -49,6 +50,10 @@ class ParsedCommand(BaseModel):
     intent: AgentIntent
     argument: str = ""
     approval_id: str | None = None
+    route_message_key: str | None = None
+    route_decision: str | None = None
+    route_thread_id: str | None = None
+    route_update_kind: str | None = None
 
 
 class ComputerTask(BaseModel):

@@ -6,12 +6,16 @@ from typing import Any
 from .errors import InvalidTransition
 from .models import (
     AttentionState,
+    BranchProjection,
+    BranchStatus,
     DesiredState,
     EventEnvelope,
     RunProjection,
     RunState,
     ThreadProjection,
     ThreadState,
+    ThreadUpdateKind,
+    ThreadUpdateProjection,
 )
 
 THREAD_TRANSITIONS: dict[ThreadState, frozenset[ThreadState]] = {
@@ -32,6 +36,7 @@ THREAD_TRANSITIONS: dict[ThreadState, frozenset[ThreadState]] = {
     ),
     ThreadState.RUNNING: frozenset(
         {
+            ThreadState.QUEUED,
             ThreadState.WAITING_USER,
             ThreadState.WAITING_APPROVAL,
             ThreadState.WAITING_RECEIPT,
@@ -45,13 +50,26 @@ THREAD_TRANSITIONS: dict[ThreadState, frozenset[ThreadState]] = {
         }
     ),
     ThreadState.WAITING_USER: frozenset(
-        {ThreadState.RUNNING, ThreadState.PAUSED, ThreadState.FAILED, ThreadState.CANCELLED}
+        {
+            ThreadState.QUEUED,
+            ThreadState.RUNNING,
+            ThreadState.PAUSED,
+            ThreadState.FAILED,
+            ThreadState.CANCELLED,
+        }
     ),
     ThreadState.WAITING_APPROVAL: frozenset(
-        {ThreadState.RUNNING, ThreadState.PAUSED, ThreadState.FAILED, ThreadState.CANCELLED}
+        {
+            ThreadState.QUEUED,
+            ThreadState.RUNNING,
+            ThreadState.PAUSED,
+            ThreadState.FAILED,
+            ThreadState.CANCELLED,
+        }
     ),
     ThreadState.WAITING_RECEIPT: frozenset(
         {
+            ThreadState.QUEUED,
             ThreadState.RUNNING,
             ThreadState.VERIFYING,
             ThreadState.PAUSED,
@@ -67,6 +85,7 @@ THREAD_TRANSITIONS: dict[ThreadState, frozenset[ThreadState]] = {
     ),
     ThreadState.VERIFYING: frozenset(
         {
+            ThreadState.QUEUED,
             ThreadState.RUNNING,
             ThreadState.DELIVERED,
             ThreadState.FAILED,
@@ -162,6 +181,15 @@ def _replace_run(
     return tuple(sorted(runs, key=lambda item: item.run_id))
 
 
+def _replace_branch(
+    projection: ThreadProjection,
+    branch: BranchProjection,
+) -> tuple[BranchProjection, ...]:
+    branches = [item for item in projection.branches if item.branch_id != branch.branch_id]
+    branches.append(branch)
+    return tuple(sorted(branches, key=lambda item: item.branch_id))
+
+
 def reduce_thread(
     projection: ThreadProjection | None,
     event: EventEnvelope,
@@ -231,6 +259,116 @@ def reduce_thread(
             updated_at=event.occurred_at,
         )
 
+    if event.event_type == "thread.message_appended":
+        update_id = str(_required(payload, "update_id"))
+        if projection.update(update_id) is not None:
+            raise InvalidTransition(f"thread update already exists: {update_id}")
+        update = ThreadUpdateProjection(
+            update_id=update_id,
+            message_key=str(_required(payload, "message_key")),
+            message_artifact_id=str(_required(payload, "message_artifact_id")),
+            text_artifact_id=str(_required(payload, "text_artifact_id")),
+            kind=ThreadUpdateKind(_required(payload, "update_kind")),
+            actor_id=str(_required(payload, "actor_id")),
+            branch_id=str(
+                event.branch_id or payload.get("branch_id") or projection.current_branch_id
+            ),
+            occurred_at=event.occurred_at,
+            task_snapshot_id=payload.get("task_snapshot_id"),
+            context_manifest_id=payload.get("context_manifest_id"),
+            new_run_id=payload.get("new_run_id"),
+        )
+        return replace(
+            projection,
+            updates=(*projection.updates, update),
+            revision=event.sequence,
+            last_event_id=event.event_id,
+            updated_at=event.occurred_at,
+        )
+
+    if event.event_type == "thread.branch_forked":
+        branch_id = str(event.branch_id or _required(payload, "branch_id"))
+        if projection.branch(branch_id) is not None:
+            raise InvalidTransition(f"branch already exists: {branch_id}")
+        source_branch_id = str(payload.get("forked_from_branch_id") or projection.current_branch_id)
+        branches = projection.branches
+        if projection.branch(source_branch_id) is None:
+            source = BranchProjection(
+                branch_id=source_branch_id,
+                status=BranchStatus.SELECTED,
+                created_by="runtime-migration",
+                created_at=projection.created_at,
+                selected_at=projection.created_at,
+            )
+            branches = tuple(sorted((*branches, source), key=lambda item: item.branch_id))
+        branch = BranchProjection(
+            branch_id=branch_id,
+            status=BranchStatus.ACTIVE,
+            created_by=event.actor,
+            created_at=event.occurred_at,
+            forked_from_branch_id=source_branch_id,
+            forked_from_event_id=str(_required(payload, "forked_from_event_id")),
+            base_snapshot_hash=str(_required(payload, "base_snapshot_hash")),
+            reason_code=str(_required(payload, "reason_code")),
+        )
+        return replace(
+            projection,
+            branches=tuple(sorted((*branches, branch), key=lambda item: item.branch_id)),
+            revision=event.sequence,
+            last_event_id=event.event_id,
+            updated_at=event.occurred_at,
+        )
+
+    if event.event_type == "thread.branch_selected":
+        branch_id = str(event.branch_id or _required(payload, "branch_id"))
+        target = projection.branch(branch_id)
+        if target is None:
+            raise InvalidTransition(f"branch does not exist: {branch_id}")
+        branches = tuple(
+            replace(
+                item,
+                status=(
+                    BranchStatus.SELECTED
+                    if item.branch_id == branch_id
+                    else BranchStatus.ACTIVE
+                    if item.status == BranchStatus.SELECTED
+                    else item.status
+                ),
+                selected_at=(
+                    event.occurred_at if item.branch_id == branch_id else item.selected_at
+                ),
+            )
+            for item in projection.branches
+        )
+        return replace(
+            projection,
+            current_branch_id=branch_id,
+            branches=branches,
+            revision=event.sequence,
+            last_event_id=event.event_id,
+            updated_at=event.occurred_at,
+        )
+
+    if event.event_type == "thread.branch_rejected":
+        branch_id = str(event.branch_id or _required(payload, "branch_id"))
+        target = projection.branch(branch_id)
+        if target is None:
+            raise InvalidTransition(f"branch does not exist: {branch_id}")
+        if target.status == BranchStatus.SELECTED:
+            raise InvalidTransition("the selected branch cannot be rejected")
+        rejected = replace(
+            target,
+            status=BranchStatus.REJECTED,
+            rejected_at=event.occurred_at,
+        )
+        return replace(
+            projection,
+            branches=_replace_branch(projection, rejected),
+            revision=event.sequence,
+            last_event_id=event.event_id,
+            updated_at=event.occurred_at,
+        )
+
     if event.event_type == "run.created":
         run_id = str(event.run_id or _required(payload, "run_id"))
         if projection.run(run_id) is not None:
@@ -238,6 +376,9 @@ def reduce_thread(
         new_run = RunProjection(
             run_id=run_id,
             branch_id=str(event.branch_id or payload.get("branch_id") or "main"),
+            created_at=event.occurred_at,
+            created_sequence=event.sequence,
+            supersedes_run_id=payload.get("supersedes_run_id"),
         )
         return replace(
             projection,

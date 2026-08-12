@@ -24,8 +24,9 @@ CoPenguin 当前最大的优点与最大的问题是同一件事：
 
 事件日志、Thread/Run replay、scheduler fencing、Artifact CAS、Intent/Receipt、
 持久审批等基础原语已经存在。初始审计发现飞书和 `/computer` 仍绕过这些原语；V2-001
-已统一 Ingress，V2-002 已统一电脑动作的 Approval 与 Receipt。Worker、Delivery 和用户决定
-闭环仍待 V2-003 → V2-007 完成。
+已统一 Ingress，V2-002 已统一电脑动作的 Approval 与 Receipt，V2-003 已让 Thread 更新、
+方法分支、取消与歧义确认进入持久主链。Worker、Delivery 和用户决定闭环仍待
+V2-004 → V2-007 完成。
 
 因此，V2 不应以“更多工具、更强模型、自动自我进化”为目标，而应完成一条可以实际使用、
 可以中断恢复、可以验证结果、可以积累信任的主链：
@@ -69,10 +70,10 @@ V2 的一句话定位建议是：
 | 领域 | 状态 | 已有资产 | 关键缺口 |
 | --- | --- | --- | --- |
 | 事件与 replay | Implemented | append-only journal、纯 reducer、projection hash | 缺少 event upcaster、完整迁移和启动时一致性审计 |
-| Thread 隔离 | Implemented | Project → TaskThread → Run；同 Thread single-writer | Branch 只有字段，没有 fork/merge/reject 语义 |
+| Thread 隔离 | Implemented | Project → TaskThread → Run；同 Thread single-writer；方法变更 fork/select Branch | merge/reject 产品决策仍待后续交付流 |
 | 并发调度 | Partial | queue、claim、heartbeat、retry、lease、fencing | 没有常驻 Worker Host；scheduler 终态未与 Run/Delivery 原子提交 |
 | Context 冻结 | Implemented | 新任务入口绑定 Task/Agent/Context snapshot + CAS | Memory/KB snapshot 仍是空引用 |
-| Inbox 路由 | Partial | 飞书/本地 CLI 已统一进入保守路由与持久 route record | Thread update 没有写入 Thread history；歧义没有产品确认流 |
+| Inbox 路由 | Implemented | 飞书/本地统一路由；Thread update、候选、owner confirmation/correction/expiry 与取消均持久 | 交互卡片和已提交路线的补偿式纠正待 V2-009 |
 | 外部动作治理 | Partial | `/computer` 已接入 durable Intent/Approval/claim/Receipt | 暂由 compatibility gateway inline 执行；缺少 Worker Host 与 Provider reconciler |
 | 交付 | Specified/Partial | `delivery.recorded` 原语 | 没有 verifier、交付版本、用户决定、修改后新 Run 和结果通知 |
 | 记忆 | Partial | EvolveMemory adapter | 当前 scope 主要是 `platform:actor`；没有产品层审阅、纠正、忘记和“待推理画像”状态 |
@@ -564,7 +565,7 @@ flowchart TB
 | --- | --- | --- |
 | V2-001 ✅ | Ingress adapter + inbound dedupe | 同一飞书/本地 message 在重启与重试后只产生一次 route |
 | V2-002 ✅ | 移除产品路径内存审批 | `/approve` 操作 durable Approval，重启后仍存在 |
-| V2-003 | Thread update 与 confirmation | 补充、改目标、换方案、取消都有持久事件和正确语义 |
+| V2-003 ✅ | Thread update 与 confirmation | 补充、改目标、换方案、取消都有持久事件和正确语义 |
 
 ### Milestone B：Close / 完成交付闭环
 
@@ -696,5 +697,5 @@ V2 只有同时满足产品闭环和 Runtime 闭环才算完成。
 7. Self-loop 在 V2 只打开 ReviewCase 和 remediation proposal；
 8. 自动晋升与 L3 自治继续保持关闭，直到 Pilot 与独立评估门通过。
 
-工程实施已完成 `V2-001`、`V2-002` 的分支级验收，下一切片是 `V2-003`；这七个切片完成后，
+工程实施已完成 `V2-001` → `V2-003` 的分支级验收，下一切片是 `V2-004`；这七个切片完成后，
 CoPenguin 才第一次拥有一个真实、持久、可验收的产品闭环。

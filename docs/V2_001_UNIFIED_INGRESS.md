@@ -51,7 +51,7 @@ V2-001 closes intake identity, not the whole product loop:
 
 - the compatibility `PrivateAssistantAgent` still handles a first-seen message
   after durable routing; V2-002 removes its in-memory approval path;
-- Thread-update application and route correction arrive in V2-003;
+- Thread-update application and route correction are implemented by V2-003;
 - queued Runs do not execute automatically until V2-004;
 - a transactional outbound Outbox arrives with the later Delivery/finalization
   slices, so V2-001 chooses missed duplicate response over repeated execution;

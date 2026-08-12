@@ -123,6 +123,22 @@ class InboxRouteType(StrEnum):
 class InboxRouteState(StrEnum):
     PROPOSED = "proposed"
     CONFIRMED = "confirmed"
+    CORRECTED = "corrected"
+    EXPIRED = "expired"
+
+
+class ThreadUpdateKind(StrEnum):
+    SUPPLEMENT = "supplement"
+    GOAL_CHANGE = "goal_change"
+    METHOD_CHANGE = "method_change"
+    CANCEL = "cancel"
+
+
+class BranchStatus(StrEnum):
+    ACTIVE = "active"
+    SELECTED = "selected"
+    REJECTED = "rejected"
+    MERGED = "merged"
 
 
 class ApprovalState(StrEnum):
@@ -207,6 +223,38 @@ class RunProjection:
     latest_checkpoint_id: str | None = None
     checkpoint_sequence: int = 0
     error: str | None = None
+    created_at: str = ""
+    created_sequence: int = 0
+    supersedes_run_id: str | None = None
+
+
+@dataclass(frozen=True)
+class BranchProjection:
+    branch_id: str
+    status: BranchStatus
+    created_by: str
+    created_at: str
+    forked_from_branch_id: str | None = None
+    forked_from_event_id: str | None = None
+    base_snapshot_hash: str | None = None
+    reason_code: str | None = None
+    selected_at: str | None = None
+    rejected_at: str | None = None
+
+
+@dataclass(frozen=True)
+class ThreadUpdateProjection:
+    update_id: str
+    message_key: str
+    message_artifact_id: str
+    text_artifact_id: str
+    kind: ThreadUpdateKind
+    actor_id: str
+    branch_id: str
+    occurred_at: str
+    task_snapshot_id: str | None = None
+    context_manifest_id: str | None = None
+    new_run_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -227,9 +275,17 @@ class ThreadProjection:
     updated_at: str = ""
     metadata: Mapping[str, Any] = field(default_factory=dict)
     runs: tuple[RunProjection, ...] = ()
+    branches: tuple[BranchProjection, ...] = ()
+    updates: tuple[ThreadUpdateProjection, ...] = ()
 
     def run(self, run_id: str) -> RunProjection | None:
         return next((item for item in self.runs if item.run_id == run_id), None)
+
+    def branch(self, branch_id: str) -> BranchProjection | None:
+        return next((item for item in self.branches if item.branch_id == branch_id), None)
+
+    def update(self, update_id: str) -> ThreadUpdateProjection | None:
+        return next((item for item in self.updates if item.update_id == update_id), None)
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -350,6 +406,11 @@ class InboxRecord:
     requires_confirmation: bool
     created_at: str
     thread_id: str | None = None
+    update_kind: ThreadUpdateKind | None = None
+    candidate_thread_ids: tuple[str, ...] = ()
+    updated_at: str = ""
+    resolved_by: str | None = None
+    resolution_reason: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -370,6 +431,32 @@ class TaskSubmission:
     task_snapshot_id: str | None = None
     agent_snapshot_id: str | None = None
     context_manifest_id: str | None = None
+
+
+@dataclass(frozen=True)
+class ThreadUpdateSubmission:
+    project_id: str
+    thread_id: str
+    message_key: str
+    actor: str
+    message_artifact_id: str
+    text_artifact_id: str
+    update_kind: ThreadUpdateKind
+    expected_revision: int
+    occurred_at: str
+    new_run_id: str | None = None
+    branch_id: str | None = None
+    forked_from_branch_id: str | None = None
+    forked_from_event_id: str | None = None
+    base_snapshot_hash: str | None = None
+    reason_code: str | None = None
+    supersedes_run_id: str | None = None
+    supersedes_run_ids: tuple[str, ...] = ()
+    task_snapshot_id: str | None = None
+    agent_snapshot_id: str | None = None
+    context_manifest_id: str | None = None
+    priority: int = 0
+    max_attempts: int = 3
 
 
 @dataclass(frozen=True)

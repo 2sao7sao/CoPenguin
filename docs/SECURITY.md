@@ -12,6 +12,8 @@ This project treats Feishu messages as untrusted remote input.
 - The shell provider only runs executables listed in `LOCAL_SHELL_ALLOWLIST`.
 - The local Inbox write endpoint accepts loopback clients only; remote channel
   input must pass its channel authentication boundary first.
+- A proposed Inbox route can be resolved only by the original channel actor;
+  the local decision endpoint is loopback-only and cross-Project updates fail closed.
 
 ## Approval Flow
 
@@ -50,6 +52,19 @@ and fencing token. A provider response becomes a Receipt linked to the Intent.
 If a worker disappears after the provider call but before writing the Receipt,
 the Intent becomes `RECONCILE_REQUIRED`. Recovery must query the provider using
 the original idempotency key; it cannot blindly repeat the action.
+
+## Route and Cancellation Boundary
+
+An ambiguous continuation remains `PROPOSED` and cannot mutate a Thread or enqueue
+a Run. A later route command records the original actor, the chosen target, and the
+reason before applying the effect atomically. Concurrent conflicting decisions cannot
+both win.
+
+Thread cancellation invalidates queued or claimed scheduler work, fences the old
+Worker, and revokes pending Approvals plus unexecuted Action Intents for superseded
+Runs. It does not claim to reverse an external Provider effect: an Action that may
+already have crossed the Provider boundary still follows its Intent, Receipt, and
+reconciliation policy.
 
 ## Production Gaps
 

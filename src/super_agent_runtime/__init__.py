@@ -32,6 +32,8 @@ from .models import (
     ApprovalRequest,
     ApprovalState,
     AttentionState,
+    BranchProjection,
+    BranchStatus,
     DesiredState,
     EventDraft,
     EventEnvelope,
@@ -47,6 +49,9 @@ from .models import (
     TaskSubmission,
     ThreadProjection,
     ThreadState,
+    ThreadUpdateKind,
+    ThreadUpdateProjection,
+    ThreadUpdateSubmission,
     WorkerClaim,
 )
 from .repository import SQLiteRuntimeRepository
@@ -67,6 +72,8 @@ __all__ = [
     "ArtifactNotFound",
     "ArtifactRef",
     "AttentionState",
+    "BranchProjection",
+    "BranchStatus",
     "ConcurrencyConflict",
     "ContextItem",
     "ContextManifest",
@@ -104,6 +111,9 @@ __all__ = [
     "ThreadProjection",
     "ThreadCoordinator",
     "ThreadState",
+    "ThreadUpdateKind",
+    "ThreadUpdateProjection",
+    "ThreadUpdateSubmission",
     "WorkerClaim",
 ]
 

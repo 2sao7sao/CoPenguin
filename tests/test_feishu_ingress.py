@@ -114,3 +114,54 @@ def test_feishu_computer_approval_uses_durable_runtime_after_restart(tmp_path) -
     detail = restarted_client.get(f"/runtime/actions/{intent.intent_id}")
     assert detail.status_code == 200
     assert detail.json()["receipts"][0]["outcome"] == "succeeded"
+
+
+def test_feishu_ambiguous_continuation_waits_for_durable_route_command(tmp_path) -> None:
+    settings = Settings(
+        data_dir=tmp_path,
+        memory_enabled=False,
+        knowledge_enabled=False,
+        feishu_verification_token="token",
+        feishu_allowed_open_ids=frozenset({"ou_owner"}),
+    )
+    app = create_app(settings)
+    client = TestClient(app)
+    first = client.post(
+        "/feishu/events",
+        json=_payload(text="/task 任务 A", message_id="om_task_a", event_id="event-task-a"),
+    ).json()
+    second = client.post(
+        "/feishu/events",
+        json=_payload(text="/task 任务 B", message_id="om_task_b", event_id="event-task-b"),
+    ).json()
+    proposed = client.post(
+        "/feishu/events",
+        json=_payload(
+            text="继续刚才那个方案",
+            message_id="om_ambiguous",
+            event_id="event-ambiguous",
+        ),
+    )
+
+    assert proposed.status_code == 200
+    assert proposed.json()["route_type"] == "ambiguous"
+    assert proposed.json()["route_state"] == "proposed"
+    assert app.state.runtime.get_thread(first["thread_id"]).updates == ()
+    assert app.state.runtime.get_thread(second["thread_id"]).updates == ()
+
+    resolved = client.post(
+        "/feishu/events",
+        json=_payload(
+            text=f"/route feishu:om_ambiguous thread {second['thread_id']}",
+            message_id="om_route_decision",
+            event_id="event-route-decision",
+        ),
+    )
+
+    assert resolved.status_code == 200
+    assert resolved.json()["intent"] == "route"
+    stored = app.state.runtime.find_inbox_record("feishu:om_ambiguous")
+    assert stored is not None
+    assert stored.route_state.value == "corrected"
+    assert stored.thread_id == second["thread_id"]
+    assert len(app.state.runtime.get_thread(second["thread_id"]).updates) == 1

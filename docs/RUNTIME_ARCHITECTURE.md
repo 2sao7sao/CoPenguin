@@ -76,6 +76,11 @@ from being claimed at the same time.
   restart-safe dedupe, normalized message Artifacts, and conservative routing
   between ordinary chat, a new Task, an existing TaskThread, control commands,
   and ambiguous messages requiring confirmation;
+- atomic confirmed Thread updates that append user evidence, preserve immutable
+  Task/Context snapshots, cancel superseded Runs, fork method Branches, and fence
+  stale Workers;
+- owner-only route resolution from `PROPOSED` to `CORRECTED` or `EXPIRED`, with
+  candidate Threads scoped to one platform, chat, and Project;
 - durable action Intent/Receipt records with execution fencing and crash
   reconciliation;
 - persistent approval decisions and expiry linked to Action Intent, with
@@ -143,15 +148,15 @@ Intent creation, external execution, Receipt recording, and verification.
 
 1. Complete problem interviews and select the narrow pilot workflow. Continue
    Runtime work only where it supports pilot safety, delivery, or measurement.
-2. Apply Thread updates, cancellation, and route confirmation semantics
-   durably (V2-003).
-3. Complete the worker lifecycle with Step events, heartbeat, verifier,
-   Delivery, and atomic scheduler/Run completion.
-4. Add a versioned Hook Registry for pre-route, pre-context, pre-action,
+2. Complete the worker lifecycle with a bounded Worker Host and deterministic
+   Source-to-Artifact executor (V2-004).
+3. Add Step events, verifier results, Delivery preparation, and causal trace.
+4. Atomically finalize scheduler, Run, Thread, Delivery, Attention, and Outbox.
+5. Add a versioned Hook Registry for pre-route, pre-context, pre-action,
    post-action, verifier, and exception hooks. Hooks may advise or block but may
    not mutate durable state outside an Intent.
-5. Add a self-loop monitor that derives observations from events, detects
+6. Add a self-loop monitor that derives observations from events, detects
    stalls/repeated corrections/policy violations, and opens reviewable
    remediation Tasks.
-6. Only after product and runtime gates pass, add candidate, independent evaluation,
+7. Only after product and runtime gates pass, add candidate, independent evaluation,
    shadow execution, pointer promotion, monitoring, and rollback.

@@ -5,9 +5,15 @@ import re
 from super_agent_runtime import (
     ActionStatus,
     ApprovalState,
+    ConcurrencyConflict,
+    IdempotencyConflict,
+    InboxCoordinator,
     InboxRecord,
+    InboxRouteState,
+    InboxRouteType,
     InvalidTransition,
     NotFound,
+    ThreadUpdateKind,
 )
 
 from .action_gateway import (
@@ -40,6 +46,16 @@ class CommandParser:
             return ParsedCommand(intent=intent, approval_id=match.group(2))
         if stripped.startswith("/status"):
             return ParsedCommand(intent=AgentIntent.STATUS)
+        if stripped.lower().startswith("/route"):
+            parts = stripped.split()
+            decision = parts[2].lower() if len(parts) >= 3 else None
+            return ParsedCommand(
+                intent=AgentIntent.ROUTE,
+                route_message_key=parts[1] if len(parts) >= 2 else None,
+                route_decision=decision,
+                route_thread_id=(parts[3] if decision == "thread" and len(parts) >= 4 else None),
+                route_update_kind=(parts[4] if decision == "thread" and len(parts) >= 5 else None),
+            )
         if stripped.startswith("/remember "):
             return ParsedCommand(
                 intent=AgentIntent.REMEMBER, argument=stripped[len("/remember ") :].strip()
@@ -68,12 +84,14 @@ class PrivateAssistantAgent:
         computer_actions: ComputerActionGateway,
         risk_classifier: RiskClassifier,
         approval_required: bool,
+        inbox: InboxCoordinator | None = None,
     ) -> None:
         self._memory = memory
         self._knowledge = knowledge
         self._computer_actions = computer_actions
         self._risk_classifier = risk_classifier
         self._approval_required = approval_required
+        self._inbox = inbox
         self._parser = CommandParser()
 
     async def handle(
@@ -93,6 +111,9 @@ class PrivateAssistantAgent:
                     f"pending_approvals={self._computer_actions.pending_approval_count()}"
                 ),
             )
+
+        if command.intent == AgentIntent.ROUTE:
+            return self._handle_route_command(command, message, inbox_record)
 
         if command.intent in {AgentIntent.APPROVE, AgentIntent.DENY}:
             return await self._handle_approval_command(command, message, inbox_record)
@@ -120,6 +141,12 @@ class PrivateAssistantAgent:
         if command.intent == AgentIntent.COMPUTER:
             return await self._handle_computer_task(message, command.argument, inbox_record)
 
+        if inbox_record is not None and inbox_record.route_state == InboxRouteState.PROPOSED:
+            return self._route_confirmation_reply(inbox_record)
+
+        if inbox_record is not None and inbox_record.route_type == InboxRouteType.THREAD_UPDATE:
+            return self._thread_update_reply(inbox_record)
+
         self._memory.ingest_turn(session_id=session_id, text=message.text, source="feishu_turn")
         context = self._memory.prompt_context(session_id=session_id, query=message.text)
         memory_hint = ""
@@ -134,6 +161,119 @@ class PrivateAssistantAgent:
                 f"{memory_hint}"
             ),
             metadata={"memory_context": context},
+        )
+
+    def _handle_route_command(
+        self,
+        command: ParsedCommand,
+        message: InboundMessage,
+        inbox_record: InboxRecord | None,
+    ) -> AgentReply:
+        if inbox_record is None or self._inbox is None:
+            return AgentReply(
+                intent=AgentIntent.ROUTE,
+                text="Route decision was not durably routed; refusing to apply it.",
+            )
+        if command.route_message_key is None or command.route_decision is None:
+            return AgentReply(
+                intent=AgentIntent.ROUTE,
+                text=(
+                    "用法：/route <message-key> thread <thread-id> [supplement|goal|method|cancel]，"
+                    "或 /route <message-key> new|dismiss"
+                ),
+            )
+        decision_map = {"new": "new_task", "dismiss": "expire", "thread": "thread"}
+        decision = decision_map.get(command.route_decision)
+        if decision is None:
+            return AgentReply(
+                intent=AgentIntent.ROUTE,
+                text="Route decision must be thread, new, or dismiss.",
+            )
+        kind_map = {
+            "supplement": ThreadUpdateKind.SUPPLEMENT,
+            "goal": ThreadUpdateKind.GOAL_CHANGE,
+            "method": ThreadUpdateKind.METHOD_CHANGE,
+            "cancel": ThreadUpdateKind.CANCEL,
+        }
+        update_kind = None
+        if command.route_update_kind is not None:
+            update_kind = kind_map.get(command.route_update_kind.lower())
+            if update_kind is None:
+                return AgentReply(
+                    intent=AgentIntent.ROUTE,
+                    text="Thread update kind must be supplement, goal, method, or cancel.",
+                )
+        message_key = command.route_message_key
+        if ":" not in message_key:
+            message_key = f"{message.platform}:{message_key}"
+        try:
+            resolved = self._inbox.resolve_route(
+                message_key=message_key,
+                platform=message.platform,
+                actor_id=message.actor_id,
+                decision=decision,
+                target_thread_id=command.route_thread_id,
+                update_kind=update_kind,
+                reason="user_route_command",
+            )
+        except PermissionError:
+            return AgentReply(
+                intent=AgentIntent.ROUTE,
+                text="This actor is not authorized to resolve that route.",
+            )
+        except (ConcurrencyConflict, IdempotencyConflict, InvalidTransition) as exc:
+            return AgentReply(intent=AgentIntent.ROUTE, text=f"Route decision refused: {exc}")
+        except (NotFound, ValueError) as exc:
+            return AgentReply(intent=AgentIntent.ROUTE, text=f"Route decision invalid: {exc}")
+
+        if resolved.route_state == InboxRouteState.EXPIRED:
+            text = f"已忽略 {resolved.message_key}；它没有创建或更新任务。"
+        elif resolved.route_type == InboxRouteType.NEW_TASK:
+            text = f"已将 {resolved.message_key} 改为新任务：{resolved.thread_id}。"
+        else:
+            text = (
+                f"已将 {resolved.message_key} 归入任务 {resolved.thread_id}，"
+                f"语义为 {resolved.update_kind.value if resolved.update_kind else 'supplement'}。"
+            )
+        return AgentReply(
+            intent=AgentIntent.ROUTE,
+            text=text,
+            metadata={"route": resolved.as_dict()},
+        )
+
+    def _route_confirmation_reply(self, record: InboxRecord) -> AgentReply:
+        candidates = "、".join(record.candidate_thread_ids) or "无明确候选"
+        commands = [
+            f"新建任务：/route {record.message_key} new",
+            f"忽略：/route {record.message_key} dismiss",
+        ]
+        commands.extend(
+            f"归入 {thread_id}：/route {record.message_key} thread {thread_id}"
+            for thread_id in record.candidate_thread_ids
+        )
+        return AgentReply(
+            intent=AgentIntent.ROUTE,
+            text=(
+                "这条消息可能是在继续某个任务，但目标不明确，因此尚未启动或修改任何任务。\n"
+                f"候选任务：{candidates}\n" + "\n".join(commands)
+            ),
+            metadata={"route": record.as_dict()},
+        )
+
+    def _thread_update_reply(self, record: InboxRecord) -> AgentReply:
+        assert record.thread_id is not None
+        kind = record.update_kind or ThreadUpdateKind.SUPPLEMENT
+        if kind == ThreadUpdateKind.CANCEL:
+            text = f"任务 {record.thread_id} 已取消；排队或运行中的 Run 已留下取消记录。"
+        else:
+            text = (
+                f"更新已归入任务 {record.thread_id}（{kind.value}）；"
+                "旧 Run 与快照保留，新 Run 使用冻结后的新上下文。"
+            )
+        return AgentReply(
+            intent=AgentIntent.ROUTE,
+            text=text,
+            metadata={"route": record.as_dict()},
         )
 
     async def _handle_approval_command(

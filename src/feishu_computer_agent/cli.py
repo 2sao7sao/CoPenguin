@@ -112,6 +112,7 @@ async def _run_local(
         computer_actions=computer_actions,
         risk_classifier=RiskClassifier(),
         approval_required=settings.approval_required,
+        inbox=inbox,
     )
     reply = await agent.handle(
         InboundMessage(

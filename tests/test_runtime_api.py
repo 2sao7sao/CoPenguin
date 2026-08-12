@@ -136,3 +136,74 @@ def test_local_ingress_endpoint_rejects_non_loopback_clients(tmp_path) -> None:
 
     assert response.status_code == 403
     assert app.state.runtime.list_inbox_records() == []
+
+
+def test_local_route_decision_applies_ambiguous_message_exactly_once(tmp_path) -> None:
+    app = create_app(Settings(data_dir=tmp_path, memory_enabled=False, knowledge_enabled=False))
+    client = TestClient(app, client=("127.0.0.1", 50000))
+
+    first = client.post(
+        "/runtime/inbox",
+        json={
+            "message_id": "task-a",
+            "chat_id": "control-room",
+            "actor_id": "owner",
+            "project_id": "work",
+            "text": "/task 任务 A",
+        },
+    ).json()["message"]
+    second = client.post(
+        "/runtime/inbox",
+        json={
+            "message_id": "task-b",
+            "chat_id": "control-room",
+            "actor_id": "owner",
+            "project_id": "work",
+            "text": "/task 任务 B",
+        },
+    ).json()["message"]
+    proposed = client.post(
+        "/runtime/inbox",
+        json={
+            "message_id": "ambiguous-1",
+            "chat_id": "control-room",
+            "actor_id": "owner",
+            "project_id": "work",
+            "text": "继续刚才那个方案",
+        },
+    )
+
+    assert proposed.status_code == 200
+    proposed_message = proposed.json()["message"]
+    assert proposed_message["route_state"] == "proposed"
+    assert set(proposed_message["candidate_thread_ids"]) == {
+        first["thread_id"],
+        second["thread_id"],
+    }
+
+    decision_payload = {
+        "decision": "thread",
+        "platform": "local",
+        "actor_id": "owner",
+        "thread_id": second["thread_id"],
+        "update_kind": "supplement",
+    }
+    resolved = client.post(
+        "/runtime/inbox/local:ambiguous-1/decision",
+        json=decision_payload,
+    )
+    retry = client.post(
+        "/runtime/inbox/local:ambiguous-1/decision",
+        json=decision_payload,
+    )
+
+    assert resolved.status_code == 200
+    assert retry.status_code == 200
+    assert resolved.json()["message"]["route_state"] == "corrected"
+    assert retry.json() == resolved.json()
+    assert len(app.state.runtime.get_thread(second["thread_id"]).updates) == 1
+    assert app.state.runtime.get_thread(first["thread_id"]).updates == ()
+    detail = client.get(f"/runtime/threads/{second['thread_id']}")
+    assert detail.status_code == 200
+    assert detail.json()["thread"]["updates"][0]["message_key"] == "local:ambiguous-1"
+    assert detail.json()["replay_verified"] is True

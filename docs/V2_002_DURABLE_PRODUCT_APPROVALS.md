@@ -113,5 +113,6 @@ the whole task lifecycle:
 - `RECONCILE_REQUIRED` has durable state but no Provider-specific reconciler in this
   slice.
 
-The next ordered slice is V2-003: durable Thread updates, route confirmation,
-correction, cancellation, and method-change semantics.
+The next ordered slice was V2-003. Its durable Thread update, route confirmation,
+correction, cancellation, and method-change contract is now implemented in
+[V2-003 Durable Thread Updates](V2_003_DURABLE_THREAD_UPDATES.md).

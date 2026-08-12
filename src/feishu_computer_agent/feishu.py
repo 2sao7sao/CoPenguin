@@ -248,6 +248,7 @@ class FeishuWebhookService:
                 "duplicate": True,
                 "message_key": ingress.record.message_key,
                 "route_type": ingress.record.route_type.value,
+                "route_state": ingress.record.route_state.value,
                 "thread_id": ingress.record.thread_id,
             }
         reply = await self._agent.handle(parsed, inbox_record=ingress.record)
@@ -258,6 +259,7 @@ class FeishuWebhookService:
             "duplicate": False,
             "message_key": ingress.record.message_key,
             "route_type": ingress.record.route_type.value,
+            "route_state": ingress.record.route_state.value,
             "thread_id": ingress.record.thread_id,
             "intent": reply.intent.value,
             "requires_approval": reply.requires_approval,

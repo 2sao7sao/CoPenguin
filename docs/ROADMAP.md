@@ -9,14 +9,15 @@ expanding autonomy.
 The accepted Alpha Golden Path is **Source to Inspectable Artifact**. This is a
 scope decision awaiting interview and Pilot evidence, not a validation result.
 
-Engineering proceeds in the accepted `V2-001 -> V2-007` order. V2-001 and V2-002
-have met their branch-level acceptance criteria; V2-003 is next. Each slice must pass its
-own acceptance criteria before the next slice begins.
+Engineering proceeds in the accepted `V2-001 -> V2-007` order. V2-001 through V2-003
+have met their branch-level acceptance criteria; V2-004 is next. Each slice must pass
+its own acceptance criteria before the next slice begins.
 
 - [V2 product and engineering direction](V2_PRODUCT_ENGINEERING_DIRECTION.md)
 - [V2 Runtime Contract](V2_RUNTIME_CONTRACT.md)
 - [Feishu Memory and Knowledge System v0.1](FEISHU_KNOWLEDGE_SYSTEM_SPEC_V0.1.md)
 - [V2-002 Durable Product Approvals](V2_002_DURABLE_PRODUCT_APPROVALS.md)
+- [V2-003 Durable Thread Updates](V2_003_DURABLE_THREAD_UPDATES.md)
 
 The implementation order is determined by the product loop, not by the number
 of available channels, tools, or model Providers.
@@ -45,9 +46,9 @@ behavioral evidence.
 - [x] Add end-to-end inbound idempotency before route or execution
 - [ ] Add outbound transactional Outbox
 - [x] Replace the product-path in-memory approval queue with durable Approvals
-- [ ] Persist Thread updates, route corrections, confirmation, cancellation,
+- [x] Persist Thread updates, route corrections, confirmation, cancellation,
       and method-change Branch events
-- [ ] Keep ordinary conversation durable without creating a TaskThread
+- [x] Keep ordinary conversation durable without creating a TaskThread
 
 Exit: every real message uses the same state and governance boundary.
 

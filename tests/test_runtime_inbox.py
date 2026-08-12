@@ -81,13 +81,21 @@ def test_explicit_task_becomes_durable_thread_with_frozen_context(tmp_path) -> N
 
 def test_continuation_updates_current_thread_instead_of_creating_new_task(tmp_path) -> None:
     repository, inbox = _inbox(tmp_path)
-    context = RoutingContext(project_id="work", current_thread_id="thread-current")
+    first = inbox.receive(
+        _message("message-1", "/task 先完成方案 A"),
+        RoutingContext(project_id="work"),
+    )
+    assert first.thread_id is not None
+    context = RoutingContext(project_id="work", current_thread_id=first.thread_id)
 
     record = inbox.receive(_message("message-2", "继续下一阶段，并换个方式处理"), context)
 
     assert record.route_type == InboxRouteType.THREAD_UPDATE
-    assert record.thread_id == "thread-current"
-    assert repository.list_threads() == []
+    assert record.thread_id == first.thread_id
+    thread = repository.get_thread(first.thread_id)
+    assert len(thread.updates) == 1
+    assert len(thread.runs) == 2
+    assert thread.current_branch_id.startswith("branch-")
 
 
 def test_ambiguous_continuation_requests_confirmation(tmp_path) -> None:

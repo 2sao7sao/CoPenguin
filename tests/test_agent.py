@@ -105,6 +105,7 @@ def _harness(
         computer_actions=gateway,
         risk_classifier=RiskClassifier(),
         approval_required=approval_required,
+        inbox=inbox,
     )
     return AgentHarness(agent, inbox, repository, artifacts, gateway)
 
