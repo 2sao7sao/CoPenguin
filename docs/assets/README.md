@@ -4,19 +4,31 @@ These files are durable source assets for CoPenguin's GitHub presentation.
 
 | Asset | Purpose | Source of truth |
 | --- | --- | --- |
-| `../../assets/copenguin-logo.svg` | Standalone mascot; keep it independent from the banner | EvolveKB penguin geometry, adapted with the CoPenguin `C` tag |
-| `../../assets/readme-banner.svg` | Repository hero banner | CoPenguin product name and current runtime flow |
+| `../../assets/copenguin-logo.png` | Primary cute mascot for README and raster use | Original image-generation output, created for CoPenguin on 2026-08-18 |
+| `../../assets/copenguin-logo.svg` | Scalable flat-color companion mark | Hand-authored vector interpretation of the approved mascot direction |
+| `../../assets/readme-banner.svg` | Repository hero banner | CoPenguin product name, vector mascot, and current runtime flow |
 | `copenguin-runtime-terminal.svg` | Test-backed runtime contract visual | `tests/test_runtime_*.py` and `docs/RUNTIME_ARCHITECTURE.md` |
 
-The mascot geometry, dark grid, pink accent, mint scarf, and terminal motif are
-intentionally aligned with the EvolveKB brand family. Do not replace the mascot
-with an emoji or an external image URL: the repository must keep a reusable logo
-asset even if the banner changes later.
+The mascot uses a charcoal-and-cream baby penguin, mint scarf, hot-pink clasp,
+and coral-orange beak and feet. The palette, dark grid, and terminal motif remain
+aligned with the EvolveKB brand family, while the full-body silhouette gives
+CoPenguin a distinct identity. Do not replace the mascot with an emoji or an
+external image URL: the repository must keep reusable PNG and SVG assets even if
+the banner changes later.
+
+## Generation brief
+
+The raster mascot was generated with the built-in OpenAI image-generation path
+using a `logo-brand` brief: a single front-facing, chubby baby penguin; friendly
+eyes; a mint scarf with a hot-pink clasp; a compact silhouette; transparent
+background; no words, badge, watermark, mockup, or unrelated prop. The output was
+downscaled without removing alpha and saved as `assets/copenguin-logo.png`.
 
 ## Refresh checklist
 
-1. Keep the standalone logo and banner in sync.
+1. Keep the PNG mascot, SVG mark, and banner in sync.
 2. Do not show planned capabilities as implemented.
-3. Update the runtime visual only when the referenced tests and architecture do.
-4. Validate the SVG files with an XML parser and inspect rendered previews.
-5. Verify every README-relative path before publishing.
+3. Preserve transparency in the PNG and readable silhouettes at 48 px.
+4. Update the runtime visual only when the referenced tests and architecture do.
+5. Validate the SVG files with an XML parser and inspect rendered previews.
+6. Verify every README-relative path before publishing.

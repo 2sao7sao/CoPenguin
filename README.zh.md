@@ -1,4 +1,12 @@
-<img src="assets/readme-banner.svg" alt="CoPenguin Banner 与围巾企鹅 Logo" width="100%" />
+<p align="center">
+  <img src="assets/copenguin-logo.png" alt="CoPenguin 可爱企鹅吉祥物" width="176" />
+</p>
+
+<h1 align="center">CoPenguin</h1>
+
+<p align="center">
+  <strong>一个入口，多条隔离任务链；每份工作都可检查、可恢复、可托付。</strong>
+</p>
 
 <p align="center">
   <a href="./README.md">English</a> ·
@@ -15,18 +23,25 @@
   <img src="https://img.shields.io/badge/posture-local--first-ff5aa5" alt="Local-first" />
 </p>
 
-# CoPenguin
+<img src="assets/readme-banner.svg" alt="CoPenguin Banner 与围巾企鹅 Logo" width="100%" />
 
-**一个 local-first 的私人助理 Runtime：把含混请求变成持久、可检查、受治理的工作。**
+> [!IMPORTANT]
+> **当前状态：早期 Alpha。** V2-001 至 V2-003 已具备分支级测试覆盖；
+> V2-004 与完整的 Source-to-Artifact 闭环仍在开发。CoPenguin 默认不会自行晋升
+> 记忆、Skill、Hook 或权限。
 
-私人助理不应该只是一个无限增长的聊天记录。CoPenguin 把“对话”和“工作”分开：
-需要持续执行的任务拥有独立 `TaskThread`，并发 Run 共享因果历史却不会互相污染；
-现实动作经过审批并留下回执。EvolveMemory 负责受治理的个性化，EvolveKB 负责可执行知识，
-两者都不会暗中接管编排权。
+真正有用的私人助理，应该允许用户只面对一个自然聊天入口，又不会把所有请求揉成一段
+混乱的长对话。CoPenguin 会把每条消息判断为普通对话、新任务、已有任务更新，或需要
+主人确认的歧义。需要持续执行的工作拥有独立 `TaskThread`、因果历史、快照、checkpoint、
+审批、产物和回执，因此生活与工作中的多个任务可以并行推进而不相互污染。
+
+[EvolveMemory](https://github.com/2sao7sao/EvolveMemory) 提供受治理的个性化，
+[EvolveKB](https://github.com/2sao7sao/EvolveKB) 提供可执行、可验证的知识；
+CoPenguin 始终保留编排权与策略边界。
 
 <img src="docs/assets/copenguin-runtime-terminal.svg" alt="CoPenguin 经测试支撑的 Runtime 契约" width="100%" />
 
-## 30 秒理解产品路径
+## 30 秒理解产品闭环
 
 ```text
 统一聊天入口
@@ -38,8 +53,9 @@
   -> 可检查交付 + 受治理的学习候选项
 ```
 
-最后一步刻意停在“候选项”：运行证据可以提出记忆、技能、Hook 或权限变更，
-但不能自行把提案升级为正式能力。
+Alpha 主路径是 **Source → Inspectable Artifact / 来源到可检查产物**：把用户明确选择的
+来源转成可审查结果，再由主人接受、修改、拒绝或发布。最后一步刻意停在“候选项”：
+运行证据可以提出记忆、Skill、Hook 或权限变更，但不能自行把提案升级为正式能力。
 
 ## v0.1.0 已实现
 
@@ -58,6 +74,8 @@
 ## 5 分钟本地体验
 
 ```bash
+git clone https://github.com/2sao7sao/CoPenguin.git
+cd CoPenguin
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[dev]"
@@ -159,7 +177,17 @@ V2 已确认采用 **Trusted Closure / 可信闭环**，不以扩大自治为起
 Hook/self-loop 边界、按顺序拆分的 PR 与 Definition of Done。
 **Source to Inspectable Artifact** 已确认为 Alpha 主路径；这是产品范围决定，不代表该工作流
 已经通过用户 Pilot 验证。
-[V2-001 统一 Ingress](docs/V2_001_UNIFIED_INGRESS.md) 已通过分支级验收测试。
+第一条具体配方记录在
+[飞书记忆与知识系统 v0.1](docs/FEISHU_KNOWLEDGE_SYSTEM_SPEC_V0.1.md)：
+把用户明确选择的飞书来源转成经过验证的项目决策记录，再通过持久审批把已接受的 Delivery
+发布为 Wiki 草稿。
+
+前三个收敛切片已通过分支级验收：
+[V2-001 统一 Ingress](docs/V2_001_UNIFIED_INGRESS.md) 提供跨重启的消息身份；
+[V2-002 持久产品审批](docs/V2_002_DURABLE_PRODUCT_APPROVALS.md) 把 computer action 绑定到
+持久 Intent、Approval、claim、Artifact 与 Receipt；
+[V2-003 持久 Thread 更新](docs/V2_003_DURABLE_THREAD_UPDATES.md) 让补充信息、目标变更、
+方法 Branch、取消和歧义路由决定全部耐久化。V2-004 是下一个工程切片。
 
 ## 稳定能力与原型边界
 
@@ -169,14 +197,19 @@ Hook/self-loop 边界、按顺序拆分的 PR 与 Definition of Done。
 - SQLite event journal 和可丢弃重建的只读 projection；
 - 持久调度、lease fencing、资源冲突与 checkpoint 恢复；
 - 飞书/本地统一 Ingress、跨重启入站去重、规范化消息 Artifact 与持久保守路由；
-- Action Intent、Receipt、审批、过期与对账；
+- 持久 Thread 更新、不可变 replacement snapshot/Run、方法 Branch 谱系、取消传播与
+  仅限 owner 的路由决定；
+- 持久 Action Intent、Receipt、审批、过期与对账；
+- `/computer`、`/approve` 和 `/deny` 已经过持久动作边界；请求者策略快照和决定证据
+  Artifact 可跨重启保留；
 - 飞书解析、owner allowlist、文字审批、`dry-run` 和显式开启的 allowlisted `local-shell`。
 
 ### 刻意尚未完成
 
-- 首次接收的消息仍会从耐久 Ingress 进入兼容助理；V2-002 将移除其内存审批路径；
+- 首次接收的消息仍会从耐久 Ingress 进入兼容助理；其 computer gateway 暂时内联执行
+  已 claim 的 Action，直到 V2-004 完成；
 - 出站回复在 Outbox 切片完成前还不是事务性的；
-- Step/verifier/Delivery 事件和原子化结束仍是下一段 Runtime 工作；
+- Step/verifier/Delivery 事件与原子化 terminal completion 仍属于后续 Runtime 切片；
 - 飞书交互卡片、长连接和真实 computer-use provider 尚未交付；
 - Product Evidence 目前是协议，不是已经得出的市场验证结论；
 - 版本化 Hook、self-loop 监测、影子评估和自治晋升仍在规划中，默认没有启用。
@@ -189,6 +222,9 @@ Hook/self-loop 边界、按顺序拆分的 PR 与 Definition of Done。
 - `/computer <task>`
 - `/approve <id>`
 - `/deny <id>`
+- `/thread <thread-id> <补充、目标变更、方法变更或取消>`
+- `/route <message-key> thread <thread-id> [supplement|goal|method|cancel]`
+- `/route <message-key> new|dismiss`
 
 ## 仓库结构
 
@@ -216,11 +252,13 @@ assets/                       可复用的 CoPenguin Logo 与 README Banner
 
 ## 品牌素材
 
-围巾企鹅是仓库内持久保存的正式素材，不依赖外部图片链接。企鹅造型、深色网格、粉/薄荷配色
-与终端视觉，刻意和 [EvolveKB](https://github.com/2sao7sao/EvolveKB) 保持同一品牌家族。
+戴围巾的小企鹅是仓库内持久保存的正式素材，不依赖外部图片链接。深炭黑、奶油白、薄荷绿、
+亮粉和珊瑚橙延续 [EvolveKB](https://github.com/2sao7sao/EvolveKB) 的品牌家族，
+更圆润的全身轮廓则让 CoPenguin 拥有独立、友好的识别度。
 
-- [独立企鹅 Logo](assets/copenguin-logo.svg)
+- [主要可爱企鹅吉祥物](assets/copenguin-logo.png)
+- [可缩放矢量 Logo](assets/copenguin-logo.svg)
 - [README Banner](assets/readme-banner.svg)
 - [素材来源与更新检查表](docs/assets/README.md)
 
-以后即使重做 Banner，也不要删除独立 Logo。
+以后即使重做 Banner，也要保留独立 PNG 与 SVG Logo。

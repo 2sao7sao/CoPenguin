@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="720" viewBox="0 0 1600 720" fill="none" role="img" aria-labelledby="title desc">
   <title id="title">CoPenguin banner</title>
-  <desc id="desc">CoPenguin mascot and a terminal-shaped map of its governed personal agent runtime.</desc>
+  <desc id="desc">A cute CoPenguin mascot beside a terminal-shaped map of its governed personal agent runtime.</desc>
   <defs>
     <pattern id="grid" width="80" height="80" patternUnits="userSpaceOnUse">
       <path d="M80 0H0V80" stroke="#261421" stroke-opacity=".7" stroke-width="1"/>
@@ -20,18 +20,24 @@
   <circle cx="220" cy="610" r="280" fill="#b8eee4" opacity=".05"/>
   <rect x="72" y="62" width="1456" height="596" rx="28" fill="#140e16" stroke="#342031"/>
 
-  <g transform="translate(116 96)">
-    <circle cx="50" cy="50" r="50" fill="#1b1219" stroke="#ff5aa5" stroke-width="4"/>
-    <ellipse cx="50" cy="47" rx="34" ry="32" fill="#5f6268"/>
-    <ellipse cx="37" cy="50" rx="15" ry="20" fill="#fff4fb"/>
-    <ellipse cx="63" cy="50" rx="15" ry="20" fill="#fff4fb"/>
-    <circle cx="39" cy="50" r="6" fill="#050507"/>
-    <circle cx="61" cy="50" r="6" fill="#050507"/>
-    <ellipse cx="50" cy="59" rx="9" ry="6" fill="#151217"/>
-    <rect x="25" y="72" width="50" height="13" rx="6.5" fill="#b8eee4"/>
-    <rect x="60" y="74" width="16" height="26" rx="6" fill="#b8eee4"/>
-    <rect x="63" y="78" width="10" height="10" rx="3" fill="#ff5aa5"/>
-    <text x="66" y="87" fill="#fff4fb" font-family="Inter, Arial, sans-serif" font-size="9" font-weight="800">C</text>
+  <g transform="translate(106 67) scale(.45)">
+    <path d="M71 126C45 133 30 151 30 174c0 17 15 24 32 14l31-20-22-42Z" fill="#17131a" stroke="#ff5aa5" stroke-width="5"/>
+    <path d="M185 126c26 7 41 25 41 48 0 17-15 24-32 14l-31-20 22-42Z" fill="#17131a" stroke="#ff5aa5" stroke-width="5"/>
+    <ellipse cx="128" cy="150" rx="69" ry="77" fill="#17131a" stroke="#ff5aa5" stroke-width="5"/>
+    <ellipse cx="128" cy="91" rx="78" ry="70" fill="#17131a" stroke="#ff5aa5" stroke-width="5"/>
+    <ellipse cx="99" cy="94" rx="42" ry="48" fill="#fff7fb"/>
+    <ellipse cx="157" cy="94" rx="42" ry="48" fill="#fff7fb"/>
+    <ellipse cx="128" cy="164" rx="47" ry="58" fill="#fff7fb"/>
+    <ellipse cx="101" cy="91" rx="14" ry="18" fill="#17131a"/>
+    <ellipse cx="155" cy="91" rx="14" ry="18" fill="#17131a"/>
+    <circle cx="96" cy="85" r="4" fill="#fff7fb"/>
+    <circle cx="150" cy="85" r="4" fill="#fff7fb"/>
+    <path d="M112 113c9-9 23-9 32 0-3 12-10 18-16 18s-13-6-16-18Z" fill="#ff9a66"/>
+    <path d="M71 132c17 9 96 12 114-1l3 24c-26 13-91 12-119-1l2-22Z" fill="#b8eee4"/>
+    <path d="M162 145c8 2 16 2 24-2l-2 58c-7 9-18 10-27 4l5-60Z" fill="#b8eee4"/>
+    <rect x="160" y="136" width="29" height="29" rx="9" fill="#ff5aa5"/>
+    <ellipse cx="99" cy="224" rx="31" ry="13" fill="#ff9a66"/>
+    <ellipse cx="157" cy="224" rx="31" ry="13" fill="#ff9a66"/>
   </g>
 
   <text x="116" y="252" fill="#ff5aa5" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" letter-spacing="3">7SAO DEVELOPER SYSTEMS</text>

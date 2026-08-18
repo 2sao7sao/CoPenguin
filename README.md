@@ -1,4 +1,12 @@
-<img src="assets/readme-banner.svg" alt="CoPenguin banner with the scarf-wearing penguin mascot" width="100%" />
+<p align="center">
+  <img src="assets/copenguin-logo.png" alt="CoPenguin cute penguin mascot" width="176" />
+</p>
+
+<h1 align="center">CoPenguin</h1>
+
+<p align="center">
+  <strong>One inbox. Many isolated task threads. Work you can inspect and trust.</strong>
+</p>
 
 <p align="center">
   <a href="./README.zh.md">简体中文</a> ·
@@ -15,19 +23,28 @@
   <img src="https://img.shields.io/badge/posture-local--first-ff5aa5" alt="Local-first" />
 </p>
 
-# CoPenguin
+<img src="assets/readme-banner.svg" alt="CoPenguin banner with the scarf-wearing penguin mascot" width="100%" />
 
-**A local-first personal agent runtime that turns ambiguous requests into durable, inspectable, and safely governed work.**
+> [!IMPORTANT]
+> **Status: early Alpha.** V2-001 through V2-003 have branch-level test coverage;
+> V2-004 and the end-to-end Source-to-Artifact closure are still under active
+> development. CoPenguin does not autonomously promote memory, skills, hooks,
+> or permissions.
 
-A personal assistant needs more than one long chat transcript. CoPenguin separates
-conversation from work, gives each durable task its own `TaskThread`, preserves
-causal history across concurrent runs, and places approval and receipts around
-real-world actions. EvolveMemory supplies governed personalization; EvolveKB
-supplies executable knowledge. Neither one silently owns orchestration.
+A useful personal agent should accept work through one natural chat surface without
+turning every request into one tangled transcript. CoPenguin routes each message as
+conversation, a new task, an update to existing work, or an ambiguity that needs the
+owner's decision. Durable work receives its own `TaskThread`, causal history, snapshots,
+checkpoints, approvals, artifacts, and receipts—so several life and work tasks can move
+forward without silently contaminating one another.
+
+[EvolveMemory](https://github.com/2sao7sao/EvolveMemory) supplies governed
+personalization. [EvolveKB](https://github.com/2sao7sao/EvolveKB) supplies executable,
+verifiable knowledge. CoPenguin remains the orchestration and policy boundary.
 
 <img src="docs/assets/copenguin-runtime-terminal.svg" alt="CoPenguin test-backed runtime contract" width="100%" />
 
-## 30-Second Product Path
+## The 30-Second Product Loop
 
 ```text
 one inbox
@@ -39,8 +56,10 @@ one inbox
   -> inspectable delivery and governed learning candidates
 ```
 
-The last step is deliberately a candidate boundary: runtime evidence may propose
-a memory, skill, hook, or permission change, but it cannot promote itself.
+The Alpha Golden Path is **Source → Inspectable Artifact**: turn an explicitly selected
+source into a reviewable result, then let the owner accept, revise, reject, or publish
+it. The final learning step is deliberately a candidate boundary: runtime evidence may
+propose a memory, skill, hook, or permission change, but it cannot promote itself.
 
 ## What Ships in v0.1.0
 
@@ -59,6 +78,8 @@ a memory, skill, hook, or permission change, but it cannot promote itself.
 ## 5-Minute Local Path
 
 ```bash
+git clone https://github.com/2sao7sao/CoPenguin.git
+cd CoPenguin
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[dev]"
@@ -244,12 +265,14 @@ See [Security](docs/SECURITY.md) and [Feishu setup](docs/FEISHU_SETUP.md).
 
 ## Brand Assets
 
-The scarf-wearing penguin is a repository-owned asset, not an external link.
-The mascot geometry, dark grid, pink/mint palette, and terminal motif intentionally
-match the [EvolveKB](https://github.com/2sao7sao/EvolveKB) brand family.
+The scarf-wearing baby penguin is a repository-owned asset, not an external image
+dependency. Its charcoal, cream, mint, hot-pink, and coral palette belongs to the
+same visual family as [EvolveKB](https://github.com/2sao7sao/EvolveKB), while the
+friendlier full-body silhouette gives CoPenguin its own identity.
 
-- [Standalone penguin logo](assets/copenguin-logo.svg)
+- [Primary cute penguin mascot](assets/copenguin-logo.png)
+- [Scalable vector mark](assets/copenguin-logo.svg)
 - [README banner](assets/readme-banner.svg)
 - [Asset provenance and refresh checklist](docs/assets/README.md)
 
-Do not remove the standalone logo when refreshing the banner.
+Keep the standalone PNG and SVG marks when refreshing the banner.

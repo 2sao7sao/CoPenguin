@@ -1,16 +1,26 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
-  <title id="title">CoPenguin logo</title>
-  <desc id="desc">A grey penguin wearing a mint scarf inside a pink circle.</desc>
-  <rect width="256" height="256" rx="56" fill="#0f0b12"/>
-  <circle cx="128" cy="124" r="92" fill="#1b1219" stroke="#ff5aa5" stroke-width="8"/>
-  <ellipse cx="128" cy="118" rx="63" ry="59" fill="#5f6268"/>
-  <ellipse cx="104" cy="123" rx="28" ry="37" fill="#fff4fb"/>
-  <ellipse cx="152" cy="123" rx="28" ry="37" fill="#fff4fb"/>
-  <circle cx="108" cy="123" r="11" fill="#050507"/>
-  <circle cx="148" cy="123" r="11" fill="#050507"/>
-  <ellipse cx="128" cy="141" rx="17" ry="11" fill="#151217"/>
-  <rect x="81" y="164" width="94" height="24" rx="12" fill="#b8eee4"/>
-  <rect x="147" y="168" width="31" height="49" rx="11" fill="#b8eee4"/>
-  <rect x="153" y="176" width="19" height="19" rx="5" fill="#ff5aa5"/>
-  <text x="158" y="191" fill="#fff4fb" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="800">C</text>
+  <title id="title">CoPenguin mascot</title>
+  <desc id="desc">A cute baby penguin wearing a mint scarf with a pink clasp.</desc>
+
+  <path d="M71 126C45 133 30 151 30 174c0 17 15 24 32 14l31-20-22-42Z" fill="#17131a"/>
+  <path d="M185 126c26 7 41 25 41 48 0 17-15 24-32 14l-31-20 22-42Z" fill="#17131a"/>
+  <ellipse cx="128" cy="150" rx="69" ry="77" fill="#17131a"/>
+  <ellipse cx="128" cy="91" rx="78" ry="70" fill="#17131a"/>
+  <ellipse cx="99" cy="94" rx="42" ry="48" fill="#fff7fb"/>
+  <ellipse cx="157" cy="94" rx="42" ry="48" fill="#fff7fb"/>
+  <ellipse cx="128" cy="164" rx="47" ry="58" fill="#fff7fb"/>
+  <ellipse cx="101" cy="91" rx="14" ry="18" fill="#17131a"/>
+  <ellipse cx="155" cy="91" rx="14" ry="18" fill="#17131a"/>
+  <circle cx="96" cy="85" r="4" fill="#fff7fb"/>
+  <circle cx="150" cy="85" r="4" fill="#fff7fb"/>
+  <circle cx="105" cy="100" r="3" fill="#b8eee4"/>
+  <circle cx="159" cy="100" r="3" fill="#b8eee4"/>
+  <path d="M112 113c9-9 23-9 32 0-3 12-10 18-16 18s-13-6-16-18Z" fill="#ff9a66"/>
+  <path d="M116 115h24" stroke="#e86d45" stroke-width="3" stroke-linecap="round"/>
+  <path d="M71 132c17 9 96 12 114-1l3 24c-26 13-91 12-119-1l2-22Z" fill="#b8eee4"/>
+  <path d="M162 145c8 2 16 2 24-2l-2 58c-7 9-18 10-27 4l5-60Z" fill="#b8eee4"/>
+  <rect x="160" y="136" width="29" height="29" rx="9" fill="#ff5aa5"/>
+  <circle cx="177" cy="145" r="4" fill="#ffd8ea"/>
+  <ellipse cx="99" cy="224" rx="31" ry="13" transform="rotate(-7 99 224)" fill="#ff9a66"/>
+  <ellipse cx="157" cy="224" rx="31" ry="13" transform="rotate(7 157 224)" fill="#ff9a66"/>
 </svg>
