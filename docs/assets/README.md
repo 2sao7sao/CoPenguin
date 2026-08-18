@@ -4,24 +4,28 @@ These files are durable source assets for CoPenguin's GitHub presentation.
 
 | Asset | Purpose | Source of truth |
 | --- | --- | --- |
-| `../../assets/copenguin-logo.png` | Primary cute mascot for README and raster use | Original image-generation output, created for CoPenguin on 2026-08-18 |
+| `../../assets/copenguin-logo.png` | Primary chibi penguin-suit mascot for README and raster use | Original reference-guided image-generation output, created for CoPenguin on 2026-08-18 |
 | `../../assets/copenguin-logo.svg` | Scalable flat-color companion mark | Hand-authored vector interpretation of the approved mascot direction |
 | `../../assets/readme-banner.svg` | Repository hero banner | CoPenguin product name, vector mascot, and current runtime flow |
 | `copenguin-runtime-terminal.svg` | Test-backed runtime contract visual | `tests/test_runtime_*.py` and `docs/RUNTIME_ARCHITECTURE.md` |
 
-The mascot uses a charcoal-and-cream baby penguin, mint scarf, hot-pink clasp,
-and coral-orange beak and feet. The palette, dark grid, and terminal motif remain
-aligned with the EvolveKB brand family, while the full-body silhouette gives
-CoPenguin a distinct identity. Do not replace the mascot with an emoji or an
-external image URL: the repository must keep reusable PNG and SVG assets even if
-the banner changes later.
+The mascot is an original chibi character wearing a slate-charcoal penguin
+kigurumi with a visible human face, white belly, wing sleeves, and yellow beak
+and feet. It follows a user-supplied visual reference at the concept level while
+excluding that image's background, watermark, identity, and distinctive
+accessories. The dark grid and terminal motif keep the banner aligned with the
+EvolveKB brand family. Do not replace the mascot with an emoji or an external
+image URL: the repository must keep reusable PNG and SVG assets even if the
+banner changes later.
 
 ## Generation brief
 
-The raster mascot was generated with the built-in OpenAI image-generation path
-using a `logo-brand` brief: a single front-facing, chubby baby penguin; friendly
-eyes; a mint scarf with a hot-pink clasp; a compact silhouette; transparent
-background; no words, badge, watermark, mockup, or unrelated prop. The output was
+The raster mascot was generated with the built-in OpenAI image-generation path.
+The user-supplied image was a design reference, not an edit target. The
+`logo-brand` brief requested one original full-body anime chibi character in a
+penguin kigurumi, with a compact walking pose and transparent background. It
+explicitly excluded the original character identity, scenery, watermark, hair
+clip, chain, collar, skates, text, and added brand decorations. The output was
 downscaled without removing alpha and saved as `assets/copenguin-logo.png`.
 
 ## Refresh checklist

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/copenguin-logo.png" alt="CoPenguin 可爱企鹅吉祥物" width="176" />
+  <img src="assets/copenguin-logo.png" alt="CoPenguin 企鹅连体服 Q 版吉祥物" width="176" />
 </p>
 
 <h1 align="center">CoPenguin</h1>
@@ -23,7 +23,7 @@
   <img src="https://img.shields.io/badge/posture-local--first-ff5aa5" alt="Local-first" />
 </p>
 
-<img src="assets/readme-banner.svg" alt="CoPenguin Banner 与围巾企鹅 Logo" width="100%" />
+<img src="assets/readme-banner.svg" alt="CoPenguin Banner 与企鹅连体服 Q 版角色" width="100%" />
 
 > [!IMPORTANT]
 > **当前状态：早期 Alpha。** V2-001 至 V2-003 已具备分支级测试覆盖；
@@ -252,11 +252,12 @@ assets/                       可复用的 CoPenguin Logo 与 README Banner
 
 ## 品牌素材
 
-戴围巾的小企鹅是仓库内持久保存的正式素材，不依赖外部图片链接。深炭黑、奶油白、薄荷绿、
-亮粉和珊瑚橙延续 [EvolveKB](https://github.com/2sao7sao/EvolveKB) 的品牌家族，
-更圆润的全身轮廓则让 CoPenguin 拥有独立、友好的识别度。
+主要吉祥物是一个原创的“人物穿企鹅连体服”Q 版角色：圆形企鹅帽、外露人脸、短翼袖、
+白肚皮以及黄色喙和脚。它遵循用户提供参考图的明确方向，但不保留原图背景、水印、
+人物身份或标志性配饰；README Banner 则继续与
+[EvolveKB](https://github.com/2sao7sao/EvolveKB) 保持同一品牌家族。
 
-- [主要可爱企鹅吉祥物](assets/copenguin-logo.png)
+- [主要企鹅连体服 Q 版吉祥物](assets/copenguin-logo.png)
 - [可缩放矢量 Logo](assets/copenguin-logo.svg)
 - [README Banner](assets/readme-banner.svg)
 - [素材来源与更新检查表](docs/assets/README.md)

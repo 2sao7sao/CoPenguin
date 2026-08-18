@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/copenguin-logo.png" alt="CoPenguin cute penguin mascot" width="176" />
+  <img src="assets/copenguin-logo.png" alt="CoPenguin chibi penguin-suit mascot" width="176" />
 </p>
 
 <h1 align="center">CoPenguin</h1>
@@ -23,7 +23,7 @@
   <img src="https://img.shields.io/badge/posture-local--first-ff5aa5" alt="Local-first" />
 </p>
 
-<img src="assets/readme-banner.svg" alt="CoPenguin banner with the scarf-wearing penguin mascot" width="100%" />
+<img src="assets/readme-banner.svg" alt="CoPenguin banner with its chibi penguin-suit mascot" width="100%" />
 
 > [!IMPORTANT]
 > **Status: early Alpha.** V2-001 through V2-003 have branch-level test coverage;
@@ -265,12 +265,14 @@ See [Security](docs/SECURITY.md) and [Feishu setup](docs/FEISHU_SETUP.md).
 
 ## Brand Assets
 
-The scarf-wearing baby penguin is a repository-owned asset, not an external image
-dependency. Its charcoal, cream, mint, hot-pink, and coral palette belongs to the
-same visual family as [EvolveKB](https://github.com/2sao7sao/EvolveKB), while the
-friendlier full-body silhouette gives CoPenguin its own identity.
+The primary mascot is an original chibi character in a penguin kigurumi: round
+penguin hood, visible human face, wing sleeves, white belly, and yellow beak and
+feet. The mascot follows the user-supplied visual reference without retaining its
+background, watermark, character identity, or distinctive accessories. The README
+banner keeps CoPenguin related to the
+[EvolveKB](https://github.com/2sao7sao/EvolveKB) brand family.
 
-- [Primary cute penguin mascot](assets/copenguin-logo.png)
+- [Primary chibi penguin-suit mascot](assets/copenguin-logo.png)
 - [Scalable vector mark](assets/copenguin-logo.svg)
 - [README banner](assets/readme-banner.svg)
 - [Asset provenance and refresh checklist](docs/assets/README.md)
