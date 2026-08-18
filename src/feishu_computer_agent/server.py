@@ -12,6 +12,7 @@ from super_agent_runtime import (
     ApprovalState,
     ArtifactCAS,
     ConcurrencyConflict,
+    DeliveryState,
     IdempotencyConflict,
     InboxCoordinator,
     InboxRouteType,
@@ -19,6 +20,7 @@ from super_agent_runtime import (
     InvalidTransition,
     JobState,
     NotFound,
+    OutboxState,
     SnapshotStore,
     SourceToArtifactExecutor,
     SourceToArtifactTaskCompiler,
@@ -31,7 +33,13 @@ from .action_gateway import DurableComputerActionGateway
 from .agent import PrivateAssistantAgent
 from .computer import build_computer_provider
 from .config import Settings, load_settings
-from .feishu import FeishuEventParser, FeishuMessenger, FeishuPayloadError, FeishuWebhookService
+from .feishu import (
+    FeishuCardActionParser,
+    FeishuEventParser,
+    FeishuMessenger,
+    FeishuPayloadError,
+    FeishuWebhookService,
+)
 from .knowledge import build_knowledge_runtime
 from .memory import build_memory_runtime
 from .security import AccessController, RiskClassifier
@@ -136,6 +144,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         agent=agent,
         ingress=feishu_ingress,
         messenger=FeishuMessenger(settings),
+        card_parser=FeishuCardActionParser(settings),
     )
 
     app = FastAPI(title=settings.app_name, version="0.1.0")
@@ -151,6 +160,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.feishu_ingress = feishu_ingress
     app.state.local_ingress = local_ingress
     app.state.default_agent_snapshot = default_agent_snapshot
+    app.state.feishu_service = service
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
@@ -203,6 +213,58 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except NotFound as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         return {"job": job.as_dict()}
+
+    @app.get("/runtime/runs/{run_id}/steps")
+    async def runtime_steps(run_id: str, limit: int = 100) -> dict[str, object]:
+        safe_limit = max(1, min(limit, 500))
+        steps = runtime.list_steps(run_id=run_id, limit=safe_limit)
+        return {"steps": [step.as_dict() for step in steps]}
+
+    @app.get("/runtime/deliveries")
+    async def runtime_deliveries(
+        thread_id: str | None = None,
+        state: DeliveryState | None = None,
+        limit: int = 100,
+    ) -> dict[str, object]:
+        safe_limit = max(1, min(limit, 500))
+        deliveries = runtime.list_deliveries(
+            thread_id=thread_id,
+            state=state,
+            limit=safe_limit,
+        )
+        return {"deliveries": [delivery.as_dict() for delivery in deliveries]}
+
+    @app.get("/runtime/deliveries/{delivery_id}")
+    async def runtime_delivery(delivery_id: str) -> dict[str, object]:
+        try:
+            delivery = runtime.get_delivery(delivery_id)
+        except NotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return {"delivery": delivery.as_dict()}
+
+    @app.post("/runtime/deliveries/{delivery_id}/present")
+    async def runtime_present_delivery(
+        delivery_id: str,
+        request: Request,
+    ) -> dict[str, object]:
+        if not _is_loopback(request):
+            raise HTTPException(status_code=403, detail="Delivery presentation requires loopback")
+        try:
+            delivery = runtime.present_delivery(delivery_id, actor="local-control-plane")
+        except NotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except InvalidTransition as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"delivery": delivery.as_dict()}
+
+    @app.get("/runtime/outbox")
+    async def runtime_outbox(
+        state: OutboxState | None = None,
+        limit: int = 100,
+    ) -> dict[str, object]:
+        safe_limit = max(1, min(limit, 500))
+        items = runtime.list_outbox(state=state, limit=safe_limit)
+        return {"items": [item.as_dict() for item in items]}
 
     @app.get("/runtime/actions")
     async def runtime_actions(
@@ -333,6 +395,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             payload = await request.json()
             if not isinstance(payload, dict):
                 raise FeishuPayloadError("Expected a JSON object.")
+            event = payload.get("event")
+            if isinstance(event, dict) and "action" in event and "operator" in event:
+                return await service.handle_card_action(payload)
             return await service.handle_payload(payload)
         except IdempotencyConflict as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc

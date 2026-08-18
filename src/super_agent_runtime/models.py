@@ -88,6 +88,50 @@ class JobState(StrEnum):
     CANCELLED = "cancelled"
 
 
+class StepKind(StrEnum):
+    MODEL = "model"
+    TOOL_READ = "tool_read"
+    TOOL_WRITE = "tool_write"
+    TRANSFORM = "transform"
+    VERIFIER = "verifier"
+    DELIVERY_PREPARE = "delivery_prepare"
+
+
+class StepState(StrEnum):
+    CREATED = "created"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    WAITING_APPROVAL = "waiting_approval"
+    WAITING_INPUT = "waiting_input"
+    WAITING_RESOURCE = "waiting_resource"
+    QUARANTINED = "quarantined"
+    CANCELLED = "cancelled"
+
+
+class VerificationVerdict(StrEnum):
+    PASSED = "passed"
+    FAILED = "failed"
+    QUARANTINED = "quarantined"
+
+
+class DeliveryState(StrEnum):
+    PREPARED = "prepared"
+    PRESENTED = "presented"
+    ACCEPTED = "accepted"
+    REVISION_REQUESTED = "revision_requested"
+    REJECTED = "rejected"
+    DEFERRED = "deferred"
+    TAKEN_OVER = "taken_over"
+
+
+class OutboxState(StrEnum):
+    PENDING = "pending"
+    CLAIMED = "claimed"
+    SENT = "sent"
+    FAILED = "failed"
+
+
 class AccessMode(StrEnum):
     READ = "read"
     WRITE = "write"
@@ -310,6 +354,94 @@ class SchedulerJob:
     lease_id: str | None = None
     fencing_token: int = 0
     lease_expires_at: str | None = None
+    last_error: str | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class StepRecord:
+    step_id: str
+    thread_id: str
+    run_id: str
+    ordinal: int
+    kind: StepKind
+    state: StepState
+    attempt: int
+    provider_key: str
+    provider_version: str
+    input_artifact_ids: tuple[str, ...] = ()
+    output_artifact_ids: tuple[str, ...] = ()
+    budget: Mapping[str, Any] = field(default_factory=dict)
+    config_snapshot_id: str | None = None
+    verifier_result_artifact_id: str | None = None
+    error_code: str | None = None
+    error: str | None = None
+    created_at: str = ""
+    started_at: str | None = None
+    completed_at: str | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class VerificationResult:
+    verifier_key: str
+    verifier_version: str
+    verdict: VerificationVerdict
+    report_artifact_id: str
+    verified_artifact_id: str | None
+    checks: Mapping[str, bool] = field(default_factory=dict)
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class DeliveryRecord:
+    delivery_id: str
+    thread_id: str
+    run_id: str
+    version: int
+    state: DeliveryState
+    summary_artifact_id: str
+    primary_artifact_id: str
+    verifier_result_artifact_id: str
+    supporting_artifact_ids: tuple[str, ...] = ()
+    source_refs: tuple[str, ...] = ()
+    previous_delivery_id: str | None = None
+    allowed_decisions: tuple[str, ...] = ()
+    sensitivity: str = "normal"
+    export_policy: str = "local_only"
+    created_at: str = ""
+    presented_at: str | None = None
+    decided_at: str | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class OutboxItem:
+    outbox_id: str
+    idempotency_key: str
+    thread_id: str
+    run_id: str
+    kind: str
+    channel: str
+    destination: str
+    payload_artifact_id: str
+    state: OutboxState
+    attempts: int
+    available_at: str
+    created_at: str
+    updated_at: str
+    lease_owner: str | None = None
+    lease_id: str | None = None
+    lease_expires_at: str | None = None
+    receipt_artifact_id: str | None = None
     last_error: str | None = None
 
     def as_dict(self) -> dict[str, Any]:

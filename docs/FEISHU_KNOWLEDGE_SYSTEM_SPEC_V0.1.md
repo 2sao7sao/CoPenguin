@@ -489,16 +489,17 @@ publish.reconciliation_required
 | --- | --- | --- |
 | V2-002 ✅ | 移除产品路径内存审批 | 飞书发布动作只能引用 durable Approval；重启后仍可 approve/deny |
 | V2-003 ✅ | Thread update / confirmation | 补充来源、改 Artifact 类型、换发布位置、取消都有持久语义 |
-| V2-004 | Worker Host / Executor | `SourceSnapshot -> Project Decision Record draft` 可从 queue 自动完成 |
-| V2-005 | Step / Verifier | capture、extract、draft、verify、publish 分 Step；VerifierResult 版本化 |
-| V2-006 | atomic finalize | Run、Delivery、Attention、Outbox 不出现分裂终态 |
+| V2-004 ✅ | Worker Host / Executor | `SourceSnapshot -> Project Decision Record draft` 可从 queue 自动完成 |
+| V2-005 ✅ | Step / Verifier | transform、verify 分 Step；VerifierResult 版本化并保留 causal trace |
+| V2-006 ✅ | atomic finalize | Run、Delivery、Attention、Outbox 不出现分裂终态 |
 | V2-007 | Delivery decision | 飞书卡片的 accept/revise/reject/defer/takeover 可 replay；revise 创建新 Run |
 | V2-008/009 | Control Room | 可查看来源、权限、引用、版本、决定、发布 Receipt |
 | V2-011 | Memory Scope Contract | Candidate 可审阅；Run 显示 MemorySelectionManifest；支持纠正和忘记 |
 
-V2-002 和 V2-003 已完成分支级验收；这只解除入口与决定语义的前置门，不授权真实飞书 Wiki
-写入。V2-004 先使用 deterministic fixture executor；V2-005 再接入模型和 verifier，并继续
-保留可重复的 fixture 测试。真实发布仍需后续 Delivery 决定与 durable Approval。
+V2-002 至 V2-006 已完成收敛分支的测试级验收；这只建立统一入口、有界执行、确定性
+Verifier 与原子 Delivery/Outbox，不授权真实飞书 Wiki 写入。当前 V2-004/005 使用可重复的
+deterministic fixture 与 Verifier。真实发布仍需 V2-007 Delivery 决定、durable Approval、
+Outbox dispatcher 和发送 Receipt。
 
 ## 14. 端到端验收场景
 

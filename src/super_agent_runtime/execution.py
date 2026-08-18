@@ -6,11 +6,12 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from typing import Any, Protocol
+from uuid import NAMESPACE_URL, uuid5
 
 from .artifacts import ArtifactCAS
 from .coordinator import ActiveRun, ThreadCoordinator
 from .errors import ExecutionError, PermanentExecutionError, StaleLease
-from .models import JobState
+from .models import JobState, StepKind, VerificationResult, VerificationVerdict
 from .repository import SQLiteRuntimeRepository
 from .snapshots import SnapshotStore
 
@@ -82,6 +83,19 @@ class Executor(Protocol):
     ) -> ExecutionResult: ...
 
 
+class Verifier(Protocol):
+    key: str
+    version: str
+    executor_key: str
+
+    def verify(
+        self,
+        request: ExecutionRequest,
+        draft_artifact_id: str,
+        control: ExecutionControl,
+    ) -> VerificationResult: ...
+
+
 @dataclass(frozen=True)
 class WorkerHostConfig:
     worker_id: str
@@ -116,6 +130,9 @@ class WorkerRunResult:
     status: WorkerRunStatus
     attempt: int
     output_artifact_id: str | None = None
+    verifier_result_artifact_id: str | None = None
+    delivery_id: str | None = None
+    outbox_id: str | None = None
     checkpoint_id: str | None = None
     error_code: str | None = None
     error: str | None = None
@@ -135,6 +152,7 @@ class WorkerHost:
         artifacts: ArtifactCAS,
         executors: Sequence[Executor],
         config: WorkerHostConfig,
+        verifiers: Sequence[Verifier] = (),
     ) -> None:
         registry: dict[str, Executor] = {}
         for executor in executors:
@@ -147,11 +165,22 @@ class WorkerHost:
             registry[key] = executor
         if not registry:
             raise ValueError("at least one Executor is required")
+        verifier_registry: dict[str, Verifier] = {}
+        for verifier in verifiers:
+            executor_key = verifier.executor_key.strip()
+            if not executor_key or not verifier.key.strip() or not verifier.version.strip():
+                raise ValueError("Verifier executor key, key, and version are required")
+            if executor_key not in registry:
+                raise ValueError(f"Verifier targets an unregistered Executor: {executor_key}")
+            if executor_key in verifier_registry:
+                raise ValueError(f"duplicate Verifier for Executor: {executor_key}")
+            verifier_registry[executor_key] = verifier
         self.repository = repository
         self.artifacts = artifacts
         self.snapshots = SnapshotStore(artifacts)
         self.coordinator = ThreadCoordinator(repository, artifacts)
         self.executors = registry
+        self.verifiers = verifier_registry
         self.config = config
 
     @property
@@ -279,8 +308,27 @@ class WorkerHost:
             checkpoint_callback=save_checkpoint,
             cancellation_error=cancellation_error,
         )
+        current_step_id: str | None = None
+        verification: VerificationResult | None = None
         try:
             request = self._load_request(active_box[0], executor)
+            transform_step_id = self._step_id(
+                active.claim.run_id,
+                active.claim.attempt,
+                ordinal=1,
+                kind=StepKind.TRANSFORM,
+            )
+            self.repository.begin_claimed_step(
+                active.claim,
+                step_id=transform_step_id,
+                ordinal=1,
+                kind=StepKind.TRANSFORM,
+                provider_key=executor.key,
+                provider_version=executor.version,
+                input_artifact_ids=tuple(request.task_snapshot.get("input_artifact_ids", ())),
+                budget={"bounded": True},
+            )
+            current_step_id = transform_step_id
             result = executor.execute(request, control)
             control.raise_if_cancelled()
             if not result.output_artifact_id.startswith("artifact:sha256:"):
@@ -292,6 +340,68 @@ class WorkerHost:
                 raise PermanentExecutionError(
                     "missing_executor_output",
                     "Executor output is missing from the configured Artifact CAS",
+                )
+            self.repository.finish_claimed_step(
+                active.claim,
+                step_id=transform_step_id,
+                succeeded=True,
+                output_artifact_ids=(result.output_artifact_id,),
+            )
+            current_step_id = None
+
+            verifier = self.verifiers.get(executor.key)
+            if verifier is not None:
+                verifier_step_id = self._step_id(
+                    active.claim.run_id,
+                    active.claim.attempt,
+                    ordinal=2,
+                    kind=StepKind.VERIFIER,
+                )
+                self.repository.begin_claimed_step(
+                    active.claim,
+                    step_id=verifier_step_id,
+                    ordinal=2,
+                    kind=StepKind.VERIFIER,
+                    provider_key=verifier.key,
+                    provider_version=verifier.version,
+                    input_artifact_ids=(result.output_artifact_id,),
+                    budget={"bounded": True, "remote_reads": 0, "model_calls": 0},
+                )
+                current_step_id = verifier_step_id
+                verification = verifier.verify(request, result.output_artifact_id, control)
+                verifier_outputs = [verification.report_artifact_id]
+                if verification.verified_artifact_id is not None:
+                    verifier_outputs.append(verification.verified_artifact_id)
+                if verification.verdict != VerificationVerdict.PASSED:
+                    self.repository.finish_claimed_step(
+                        active.claim,
+                        step_id=verifier_step_id,
+                        succeeded=False,
+                        output_artifact_ids=verifier_outputs,
+                        verifier_result_artifact_id=verification.report_artifact_id,
+                        error_code="verification_failed",
+                        error="Decision Record did not pass every required verifier check",
+                    )
+                    current_step_id = None
+                    raise PermanentExecutionError(
+                        "verification_failed",
+                        "Decision Record did not pass every required verifier check",
+                    )
+                assert verification.verified_artifact_id is not None
+                self.repository.finish_claimed_step(
+                    active.claim,
+                    step_id=verifier_step_id,
+                    succeeded=True,
+                    output_artifact_ids=verifier_outputs,
+                    verifier_result_artifact_id=verification.report_artifact_id,
+                )
+                current_step_id = None
+                result = ExecutionResult(
+                    output_artifact_id=verification.verified_artifact_id,
+                    metadata={
+                        **dict(result.metadata),
+                        "verification": verification.verdict.value,
+                    },
                 )
         except StaleLease as exc:
             return WorkerRunResult(
@@ -306,6 +416,12 @@ class WorkerHost:
                 error=str(exc),
             )
         except ExecutionError as exc:
+            self._fail_step_safely(
+                active_box[0],
+                step_id=current_step_id,
+                code=exc.code,
+                message=str(exc),
+            )
             return self._settle_failure(
                 active_box[0],
                 executor_key=executor.key,
@@ -316,6 +432,12 @@ class WorkerHost:
                 checkpoint_id=checkpoint_id,
             )
         except Exception as exc:  # noqa: BLE001 - unhandled pure Executor failures are bounded retries
+            self._fail_step_safely(
+                active_box[0],
+                step_id=current_step_id,
+                code="executor_unhandled_error",
+                message=str(exc) or type(exc).__name__,
+            )
             return self._settle_failure(
                 active_box[0],
                 executor_key=executor.key,
@@ -329,14 +451,44 @@ class WorkerHost:
             stop_heartbeat.set()
             heartbeat.join(timeout=max(1.0, self.config.heartbeat_interval_seconds * 2))
 
+        delivery_id: str | None = None
+        outbox_id: str | None = None
         try:
-            job, _ = self.repository.finish_claimed_execution(
-                active.claim,
-                executor_key=executor.key,
-                executor_version=executor.version,
-                succeeded=True,
-                output_artifact_id=result.output_artifact_id,
-            )
+            if verification is None:
+                job, _ = self.repository.finish_claimed_execution(
+                    active.claim,
+                    executor_key=executor.key,
+                    executor_version=executor.version,
+                    succeeded=True,
+                    output_artifact_id=result.output_artifact_id,
+                )
+            else:
+                verified_record = self.artifacts.get_json(result.output_artifact_id)
+                citations = (
+                    verified_record.get("citations", ())
+                    if isinstance(verified_record, dict)
+                    else ()
+                )
+                source_refs = tuple(
+                    str(item["source_ref_id"])
+                    for item in citations
+                    if isinstance(item, dict) and item.get("source_ref_id")
+                )
+                draft_artifact_id = str(
+                    self.artifacts.get_json(verification.report_artifact_id)["draft_artifact_id"]
+                )
+                job, _, delivery, outbox = self.repository.finalize_claimed_delivery(
+                    active.claim,
+                    executor_key=executor.key,
+                    executor_version=executor.version,
+                    primary_artifact_id=result.output_artifact_id,
+                    verifier_result_artifact_id=verification.report_artifact_id,
+                    supporting_artifact_ids=(draft_artifact_id,),
+                    source_refs=source_refs,
+                    sensitivity=str(request.task_snapshot.get("sensitivity") or "normal"),
+                )
+                delivery_id = delivery.delivery_id
+                outbox_id = outbox.outbox_id
         except StaleLease as exc:
             return WorkerRunResult(
                 thread_id=active.claim.thread_id,
@@ -358,9 +510,48 @@ class WorkerHost:
             status=WorkerRunStatus.COMPLETED,
             attempt=active.claim.attempt,
             output_artifact_id=result.output_artifact_id,
+            verifier_result_artifact_id=(
+                verification.report_artifact_id if verification is not None else None
+            ),
+            delivery_id=delivery_id,
+            outbox_id=outbox_id,
             checkpoint_id=checkpoint_id,
             metadata=dict(result.metadata),
         )
+
+    def _step_id(
+        self,
+        run_id: str,
+        attempt: int,
+        *,
+        ordinal: int,
+        kind: StepKind,
+    ) -> str:
+        return uuid5(
+            NAMESPACE_URL,
+            f"copenguin:{run_id}:attempt:{attempt}:step:{ordinal}:{kind.value}",
+        ).hex
+
+    def _fail_step_safely(
+        self,
+        active: ActiveRun,
+        *,
+        step_id: str | None,
+        code: str,
+        message: str,
+    ) -> None:
+        if step_id is None:
+            return
+        try:
+            self.repository.finish_claimed_step(
+                active.claim,
+                step_id=step_id,
+                succeeded=False,
+                error_code=code,
+                error=message,
+            )
+        except Exception:  # noqa: BLE001 - preserve the original execution failure
+            return
 
     def _load_request(self, active: ActiveRun, executor: Executor) -> ExecutionRequest:
         run = active.projection.run(active.claim.run_id)

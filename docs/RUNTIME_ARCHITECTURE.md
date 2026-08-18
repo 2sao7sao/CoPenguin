@@ -148,10 +148,9 @@ Intent creation, external execution, Receipt recording, and verification.
 
 1. Complete problem interviews and select the narrow pilot workflow. Continue
    Runtime work only where it supports pilot safety, delivery, or measurement.
-2. Complete the worker lifecycle with a bounded Worker Host and deterministic
-   Source-to-Artifact executor (V2-004).
-3. Add Step events, verifier results, Delivery preparation, and causal trace.
-4. Atomically finalize scheduler, Run, Thread, Delivery, Attention, and Outbox.
+2. Add owner Delivery decisions and immutable revision Runs (V2-007).
+3. Dispatch transactional Outbox intents with durable channel Receipts.
+4. Migrate the compatibility computer gateway onto the bounded Worker Host.
 5. Add a versioned Hook Registry for pre-route, pre-context, pre-action,
    post-action, verifier, and exception hooks. Hooks may advise or block but may
    not mutate durable state outside an Intent.

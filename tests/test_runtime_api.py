@@ -1,8 +1,17 @@
 from fastapi.testclient import TestClient
 
+from copenguin.demo import DEFAULT_SOURCE
 from feishu_computer_agent.config import Settings
 from feishu_computer_agent.server import create_app
-from super_agent_runtime import InboxMessage, RoutingContext
+from super_agent_runtime import (
+    DecisionRecordVerifier,
+    InboxMessage,
+    RoutingContext,
+    SourceSnapshotBinding,
+    SourceToArtifactExecutor,
+    WorkerHost,
+    WorkerHostConfig,
+)
 
 
 def test_runtime_sidebar_and_detail_endpoints(tmp_path) -> None:
@@ -44,6 +53,50 @@ def test_runtime_scheduler_job_endpoint_exposes_executor_routing(tmp_path) -> No
     assert listing.json()["jobs"][0]["executor_key"] == "fixture-executor"
     assert detail.status_code == 200
     assert detail.json()["job"]["state"] == "queued"
+
+
+def test_runtime_exposes_verified_steps_delivery_and_outbox(tmp_path) -> None:
+    app = create_app(Settings(data_dir=tmp_path, memory_enabled=False, knowledge_enabled=False))
+    artifacts = app.state.artifacts
+    source = artifacts.put_json(DEFAULT_SOURCE, kind="api_test_source")
+    submitted = app.state.source_tasks.submit(
+        project_id="work",
+        objective="Create an inspectable decision record",
+        sources=(
+            SourceSnapshotBinding(
+                source_snapshot_id="api-source-1",
+                source_ref_id="test:api-source-1",
+                revision_id=source.sha256,
+                access_envelope_id="local-owner",
+                content_artifact_id=source.artifact_id,
+            ),
+        ),
+    )
+    result = WorkerHost(
+        repository=app.state.runtime,
+        artifacts=artifacts,
+        executors=(SourceToArtifactExecutor(artifacts),),
+        verifiers=(DecisionRecordVerifier(artifacts),),
+        config=WorkerHostConfig(worker_id="api-worker"),
+    ).run_once()
+    assert result is not None and result.delivery_id is not None
+    client = TestClient(app, client=("127.0.0.1", 50000))
+
+    steps = client.get(f"/runtime/runs/{submitted.task.run_id}/steps")
+    deliveries = client.get(
+        "/runtime/deliveries",
+        params={"thread_id": submitted.task.thread_id},
+    )
+    detail = client.get(f"/runtime/deliveries/{result.delivery_id}")
+    presented = client.post(f"/runtime/deliveries/{result.delivery_id}/present")
+    outbox = client.get("/runtime/outbox", params={"state": "pending"})
+
+    assert steps.status_code == 200
+    assert [item["kind"] for item in steps.json()["steps"]] == ["transform", "verifier"]
+    assert deliveries.json()["deliveries"][0]["state"] == "prepared"
+    assert detail.json()["delivery"]["primary_artifact_id"] == result.output_artifact_id
+    assert presented.json()["delivery"]["state"] == "presented"
+    assert len(outbox.json()["items"]) == 1
 
 
 def test_runtime_detail_returns_not_found(tmp_path) -> None:

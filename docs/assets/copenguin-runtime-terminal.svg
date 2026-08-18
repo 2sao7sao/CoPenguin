@@ -18,24 +18,24 @@
   <rect x="42" y="42" width="1096" height="636" rx="24" fill="url(#termBg)" stroke="#93b8a9"/>
   <rect x="42" y="42" width="1096" height="58" rx="24" class="chrome"/>
   <circle cx="78" cy="71" r="8" class="dot2"/><circle cx="104" cy="71" r="8" class="dot"/><circle cx="130" cy="71" r="8" class="dot3"/>
-  <text x="168" y="78" class="title">CoPenguin: request -> governed, inspectable delivery</text>
+  <text x="168" y="78" class="title">CoPenguin: source -> verified, inspectable delivery</text>
 
   <text x="74" y="136" class="mono accent">$ pytest -q</text>
   <text x="74" y="178" class="mono ok">runtime contract: PASS</text>
-  <text x="74" y="212" class="mono muted">source: tests/test_runtime_*.py</text>
+  <text x="74" y="212" class="mono muted">source: tests/test_runtime_trusted_closure.py</text>
 
   <rect x="74" y="244" width="314" height="124" rx="18" class="panel"/>
   <text x="98" y="276" class="label">HISTORY</text><text x="98" y="314" class="metric">replayable</text><text x="98" y="342" class="small muted">event journal + projections</text>
   <rect x="432" y="244" width="314" height="124" rx="18" class="panel"/>
-  <text x="456" y="276" class="label">SCHEDULER</text><text x="456" y="314" class="metric">fenced</text><text x="456" y="342" class="small muted">leases + checkpoints</text>
+  <text x="456" y="276" class="label">EXECUTION</text><text x="456" y="314" class="metric">fenced</text><text x="456" y="342" class="small muted">leases + Step attempts</text>
   <rect x="790" y="244" width="274" height="124" rx="18" class="panel"/>
-  <text x="814" y="276" class="label">EFFECTS</text><text x="814" y="314" class="metric">governed</text><text x="814" y="342" class="small muted">intent + receipt</text>
+  <text x="814" y="276" class="label">CLOSURE</text><text x="814" y="314" class="metric">atomic</text><text x="814" y="342" class="small muted">Delivery + Outbox intent</text>
 
   <text x="74" y="420" class="mono">## Current invariants</text>
-  <text x="98" y="460" class="small ok">ambiguous_continuation:  confirmation_required</text>
-  <text x="98" y="492" class="small ok">same_thread_main_runs:    single_writer</text>
-  <text x="98" y="524" class="small ok">stale_worker_commit:      rejected</text>
+  <text x="98" y="460" class="small ok">step_causal_trace:        replayable</text>
+  <text x="98" y="492" class="small ok">verifier_failure:         delivery_blocked</text>
+  <text x="98" y="524" class="small ok">terminal_transaction:     atomic</text>
   <text x="98" y="556" class="small warn">autonomous_promotion:     not_enabled</text>
 
-  <text x="74" y="616" class="mono muted">Runtime safety is implemented. Product demand and self-evolution remain gated hypotheses.</text>
+  <text x="74" y="616" class="mono muted">Trusted closure is test-backed. Owner decisions and product demand remain open gates.</text>
 </svg>

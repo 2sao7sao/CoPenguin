@@ -1,0 +1,24 @@
+services:
+  copenguin:
+    build:
+      context: .
+    init: true
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8787
+      COPENGUIN_DATA_DIR: /data
+      COMPUTER_PROVIDER: dry-run
+      MEMORY_ENABLED: "0"
+      KNOWLEDGE_ENABLED: "0"
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - copenguin-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  copenguin-data:

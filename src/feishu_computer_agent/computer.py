@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import shlex
+import shutil
+import sys
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -87,7 +89,96 @@ class LocalShellComputerProvider:
         )
 
 
+@dataclass
+class MacOSShortcutsComputerProvider:
+    """Run an owner-created Apple Shortcut by exact allowlisted name."""
+
+    settings: Settings
+    name: str = "macos-shortcuts"
+
+    async def run(self, task: ComputerTask) -> ComputerObservation:
+        if not self.settings.macos_shortcuts_enabled:
+            return ComputerObservation(
+                ok=False,
+                provider=self.name,
+                summary=(
+                    "macOS Shortcuts provider is disabled. Set MACOS_SHORTCUTS_ENABLED=1 to opt in."
+                ),
+            )
+        prefix = "shortcut:"
+        if not task.instruction.strip().lower().startswith(prefix):
+            return ComputerObservation(
+                ok=False,
+                provider=self.name,
+                summary="macOS Shortcuts provider requires `shortcut: <exact name>`.",
+            )
+        shortcut_name = task.instruction.strip()[len(prefix) :].strip()
+        if not shortcut_name:
+            return ComputerObservation(
+                ok=False,
+                provider=self.name,
+                summary="Shortcut name is empty.",
+            )
+        if shortcut_name not in self.settings.macos_shortcuts_allowlist:
+            return ComputerObservation(
+                ok=False,
+                provider=self.name,
+                summary=f"Shortcut `{shortcut_name}` is not in MACOS_SHORTCUTS_ALLOWLIST.",
+                details={"allowlist": sorted(self.settings.macos_shortcuts_allowlist)},
+            )
+        if sys.platform != "darwin":
+            return ComputerObservation(
+                ok=False,
+                provider=self.name,
+                summary="macOS Shortcuts provider is only available on macOS.",
+            )
+        executable = shutil.which("shortcuts")
+        if executable is None:
+            return ComputerObservation(
+                ok=False,
+                provider=self.name,
+                summary="Apple Shortcuts CLI was not found on this Mac.",
+            )
+        proc = await asyncio.create_subprocess_exec(
+            executable,
+            "run",
+            shortcut_name,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(),
+                timeout=self.settings.macos_shortcuts_timeout_seconds,
+            )
+        except TimeoutError:
+            proc.kill()
+            await proc.wait()
+            return ComputerObservation(
+                ok=False,
+                provider=self.name,
+                summary=(
+                    "Shortcut timed out after "
+                    f"{self.settings.macos_shortcuts_timeout_seconds} seconds."
+                ),
+            )
+        out = stdout.decode("utf-8", errors="replace").strip()
+        err = stderr.decode("utf-8", errors="replace").strip()
+        return ComputerObservation(
+            ok=proc.returncode == 0,
+            provider=self.name,
+            summary=out or err or f"Shortcut exited with code {proc.returncode}.",
+            details={
+                "returncode": proc.returncode,
+                "shortcut": shortcut_name,
+                "stderr": err[:4000],
+            },
+        )
+
+
 def build_computer_provider(settings: Settings) -> ComputerProvider:
     if settings.computer_provider == "local-shell":
         return LocalShellComputerProvider(settings)
+    if settings.computer_provider == "macos-shortcuts":
+        return MacOSShortcutsComputerProvider(settings)
     return DryRunComputerProvider()

@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from .errors import (
     ConcurrencyConflict,
@@ -29,6 +29,8 @@ from .models import (
     AttentionState,
     BranchProjection,
     BranchStatus,
+    DeliveryRecord,
+    DeliveryState,
     DesiredState,
     EventDraft,
     EventEnvelope,
@@ -36,11 +38,16 @@ from .models import (
     InboxRouteState,
     InboxRouteType,
     JobState,
+    OutboxItem,
+    OutboxState,
     ReceiptOutcome,
     ResourceLease,
     RunProjection,
     RunState,
     SchedulerJob,
+    StepKind,
+    StepRecord,
+    StepState,
     TaskSubmission,
     ThreadProjection,
     ThreadState,
@@ -275,6 +282,82 @@ class SQLiteRuntimeRepository:
 
                 CREATE INDEX IF NOT EXISTS idx_approval_attention
                     ON runtime_approvals(status, expires_at, updated_at);
+
+                CREATE TABLE IF NOT EXISTS runtime_steps (
+                    step_id TEXT PRIMARY KEY,
+                    thread_id TEXT NOT NULL,
+                    run_id TEXT NOT NULL,
+                    ordinal INTEGER NOT NULL,
+                    kind TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    attempt INTEGER NOT NULL,
+                    provider_key TEXT NOT NULL,
+                    provider_version TEXT NOT NULL,
+                    input_artifact_ids_json TEXT NOT NULL DEFAULT '[]',
+                    output_artifact_ids_json TEXT NOT NULL DEFAULT '[]',
+                    budget_json TEXT NOT NULL DEFAULT '{}',
+                    config_snapshot_id TEXT,
+                    verifier_result_artifact_id TEXT,
+                    error_code TEXT,
+                    error TEXT,
+                    created_at TEXT NOT NULL,
+                    started_at TEXT,
+                    completed_at TEXT,
+                    UNIQUE(run_id, ordinal, attempt)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_steps_run
+                    ON runtime_steps(run_id, ordinal, attempt);
+
+                CREATE TABLE IF NOT EXISTS deliveries (
+                    delivery_id TEXT PRIMARY KEY,
+                    thread_id TEXT NOT NULL,
+                    run_id TEXT NOT NULL UNIQUE,
+                    version INTEGER NOT NULL,
+                    state TEXT NOT NULL,
+                    summary_artifact_id TEXT NOT NULL,
+                    primary_artifact_id TEXT NOT NULL,
+                    supporting_artifact_ids_json TEXT NOT NULL DEFAULT '[]',
+                    source_refs_json TEXT NOT NULL DEFAULT '[]',
+                    verifier_result_artifact_id TEXT NOT NULL,
+                    previous_delivery_id TEXT,
+                    allowed_decisions_json TEXT NOT NULL DEFAULT '[]',
+                    sensitivity TEXT NOT NULL,
+                    export_policy TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    presented_at TEXT,
+                    decided_at TEXT,
+                    UNIQUE(thread_id, version)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_deliveries_thread
+                    ON deliveries(thread_id, version DESC);
+                CREATE INDEX IF NOT EXISTS idx_deliveries_state
+                    ON deliveries(state, created_at);
+
+                CREATE TABLE IF NOT EXISTS runtime_outbox (
+                    outbox_id TEXT PRIMARY KEY,
+                    idempotency_key TEXT NOT NULL UNIQUE,
+                    thread_id TEXT NOT NULL,
+                    run_id TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    channel TEXT NOT NULL,
+                    destination TEXT NOT NULL,
+                    payload_artifact_id TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    available_at TEXT NOT NULL,
+                    lease_owner TEXT,
+                    lease_id TEXT,
+                    lease_expires_at TEXT,
+                    receipt_artifact_id TEXT,
+                    last_error TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_outbox_dispatch
+                    ON runtime_outbox(state, available_at, created_at);
                 """
             )
             action_columns = {
@@ -374,6 +457,10 @@ class SQLiteRuntimeRepository:
             connection.execute(
                 "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
                 (7, to_timestamp(self._clock())),
+            )
+            connection.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                (8, to_timestamp(self._clock())),
             )
 
     # ------------------------------------------------------------------
@@ -1635,6 +1722,678 @@ class SQLiteRuntimeRepository:
             ).fetchone()
             assert updated is not None
             return self._row_to_job(updated), projection
+
+    def begin_claimed_step(
+        self,
+        claim: WorkerClaim,
+        *,
+        step_id: str,
+        ordinal: int,
+        kind: StepKind,
+        provider_key: str,
+        provider_version: str,
+        input_artifact_ids: Iterable[str] = (),
+        budget: dict[str, Any] | None = None,
+        config_snapshot_id: str | None = None,
+    ) -> StepRecord:
+        """Create and start one replay-visible Step under a live Worker claim."""
+
+        step_id = step_id.strip()
+        provider_key = provider_key.strip()
+        provider_version = provider_version.strip()
+        inputs = tuple(input_artifact_ids)
+        if not step_id or not provider_key or not provider_version:
+            raise ValueError("step_id, provider_key, and provider_version are required")
+        if ordinal < 1:
+            raise ValueError("step ordinal must be at least 1")
+        if any(not value.startswith("artifact:sha256:") for value in inputs):
+            raise ValueError("Step inputs must be Artifact CAS references")
+        now = to_timestamp(self._clock())
+        with self._transaction() as connection:
+            self._assert_live_worker_claim(connection, claim, now)
+            existing = connection.execute(
+                "SELECT * FROM runtime_steps WHERE step_id = ?", (step_id,)
+            ).fetchone()
+            if existing is not None:
+                record = self._row_to_step(existing)
+                expected = (
+                    claim.thread_id,
+                    claim.run_id,
+                    ordinal,
+                    kind,
+                    claim.attempt,
+                    provider_key,
+                    provider_version,
+                    inputs,
+                )
+                actual = (
+                    record.thread_id,
+                    record.run_id,
+                    record.ordinal,
+                    record.kind,
+                    record.attempt,
+                    record.provider_key,
+                    record.provider_version,
+                    record.input_artifact_ids,
+                )
+                if actual != expected:
+                    raise IdempotencyConflict(f"step id was reused: {step_id}")
+                return record
+            projection = self._get_thread_in_transaction(connection, claim.thread_id)
+            if projection is None:
+                raise NotFound(f"thread not found: {claim.thread_id}")
+            run = projection.run(claim.run_id)
+            if run is None or run.state != RunState.RUNNING:
+                raise InvalidTransition("Steps require the active running Run")
+            payload = {
+                "step_id": step_id,
+                "ordinal": ordinal,
+                "kind": kind.value,
+                "attempt": claim.attempt,
+                "provider_key": provider_key,
+                "provider_version": provider_version,
+                "input_artifact_ids": list(inputs),
+                "budget": dict(budget or {}),
+                "config_snapshot_id": config_snapshot_id,
+                "fencing_token": claim.fencing_token,
+            }
+            created = self._insert_event(
+                connection,
+                EventDraft(
+                    stream_type="run-step",
+                    stream_id=step_id,
+                    project_id=projection.project_id,
+                    thread_id=claim.thread_id,
+                    branch_id=run.branch_id,
+                    run_id=claim.run_id,
+                    event_type="step.created",
+                    actor=claim.worker_id,
+                    occurred_at=now,
+                    payload=payload,
+                ),
+            )
+            self._insert_event(
+                connection,
+                EventDraft(
+                    stream_type="run-step",
+                    stream_id=step_id,
+                    project_id=projection.project_id,
+                    thread_id=claim.thread_id,
+                    branch_id=run.branch_id,
+                    run_id=claim.run_id,
+                    causation_id=created.event_id,
+                    event_type="step.started",
+                    actor=claim.worker_id,
+                    occurred_at=now,
+                    payload={"step_id": step_id, "fencing_token": claim.fencing_token},
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO runtime_steps(
+                    step_id, thread_id, run_id, ordinal, kind, state, attempt,
+                    provider_key, provider_version, input_artifact_ids_json,
+                    output_artifact_ids_json, budget_json, config_snapshot_id,
+                    created_at, started_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, ?, ?)
+                """,
+                (
+                    step_id,
+                    claim.thread_id,
+                    claim.run_id,
+                    ordinal,
+                    kind.value,
+                    StepState.RUNNING.value,
+                    claim.attempt,
+                    provider_key,
+                    provider_version,
+                    canonical_json(inputs),
+                    canonical_json(budget or {}),
+                    config_snapshot_id,
+                    now,
+                    now,
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM runtime_steps WHERE step_id = ?", (step_id,)
+            ).fetchone()
+            assert row is not None
+            return self._row_to_step(row)
+
+    def finish_claimed_step(
+        self,
+        claim: WorkerClaim,
+        *,
+        step_id: str,
+        succeeded: bool,
+        output_artifact_ids: Iterable[str] = (),
+        verifier_result_artifact_id: str | None = None,
+        error_code: str | None = None,
+        error: str | None = None,
+    ) -> StepRecord:
+        """Finish one Step while preserving the Worker lease fence."""
+
+        outputs = tuple(output_artifact_ids)
+        if any(not value.startswith("artifact:sha256:") for value in outputs):
+            raise ValueError("Step outputs must be Artifact CAS references")
+        if verifier_result_artifact_id is not None and not verifier_result_artifact_id.startswith(
+            "artifact:sha256:"
+        ):
+            raise ValueError("verifier result must be an Artifact CAS reference")
+        if succeeded and (error_code is not None or error is not None):
+            raise ValueError("a successful Step cannot include an error")
+        if not succeeded and (not error_code or not error):
+            raise ValueError("a failed Step requires an error code and message")
+        now = to_timestamp(self._clock())
+        with self._transaction() as connection:
+            self._assert_live_worker_claim(connection, claim, now)
+            row = connection.execute(
+                "SELECT * FROM runtime_steps WHERE step_id = ?", (step_id,)
+            ).fetchone()
+            if row is None:
+                raise NotFound(f"step not found: {step_id}")
+            record = self._row_to_step(row)
+            if record.thread_id != claim.thread_id or record.run_id != claim.run_id:
+                raise InvalidTransition("Step does not belong to the claimed Run")
+            if record.state != StepState.RUNNING:
+                raise InvalidTransition("only a running Step may finish")
+            projection = self._get_thread_in_transaction(connection, claim.thread_id)
+            if projection is None:
+                raise NotFound(f"thread not found: {claim.thread_id}")
+            run = projection.run(claim.run_id)
+            if run is None:
+                raise NotFound(f"run not found: {claim.run_id}")
+            last_cause_id: str | None = None
+            if outputs:
+                output_event = self._insert_event(
+                    connection,
+                    EventDraft(
+                        stream_type="run-step",
+                        stream_id=step_id,
+                        project_id=projection.project_id,
+                        thread_id=claim.thread_id,
+                        branch_id=run.branch_id,
+                        run_id=claim.run_id,
+                        event_type="step.output_recorded",
+                        actor=claim.worker_id,
+                        occurred_at=now,
+                        payload={
+                            "step_id": step_id,
+                            "output_artifact_ids": list(outputs),
+                            "verifier_result_artifact_id": verifier_result_artifact_id,
+                        },
+                    ),
+                )
+                last_cause_id = output_event.event_id
+            target = StepState.SUCCEEDED if succeeded else StepState.FAILED
+            self._insert_event(
+                connection,
+                EventDraft(
+                    stream_type="run-step",
+                    stream_id=step_id,
+                    project_id=projection.project_id,
+                    thread_id=claim.thread_id,
+                    branch_id=run.branch_id,
+                    run_id=claim.run_id,
+                    causation_id=last_cause_id,
+                    event_type="step.succeeded" if succeeded else "step.failed",
+                    actor=claim.worker_id,
+                    occurred_at=now,
+                    payload={
+                        "step_id": step_id,
+                        "error_code": error_code,
+                        "error": error,
+                        "fencing_token": claim.fencing_token,
+                    },
+                ),
+            )
+            connection.execute(
+                """
+                UPDATE runtime_steps
+                SET state = ?, output_artifact_ids_json = ?,
+                    verifier_result_artifact_id = ?, error_code = ?, error = ?, completed_at = ?
+                WHERE step_id = ?
+                """,
+                (
+                    target.value,
+                    canonical_json(outputs),
+                    verifier_result_artifact_id,
+                    error_code,
+                    error,
+                    now,
+                    step_id,
+                ),
+            )
+            updated = connection.execute(
+                "SELECT * FROM runtime_steps WHERE step_id = ?", (step_id,)
+            ).fetchone()
+            assert updated is not None
+            return self._row_to_step(updated)
+
+    def finalize_claimed_delivery(
+        self,
+        claim: WorkerClaim,
+        *,
+        executor_key: str,
+        executor_version: str,
+        primary_artifact_id: str,
+        verifier_result_artifact_id: str,
+        summary_artifact_id: str | None = None,
+        supporting_artifact_ids: Iterable[str] = (),
+        source_refs: Iterable[str] = (),
+        sensitivity: str = "normal",
+        export_policy: str = "local_only",
+        notification_channel: str = "local",
+        notification_destination: str | None = None,
+    ) -> tuple[SchedulerJob, ThreadProjection, DeliveryRecord, OutboxItem]:
+        """Atomically close scheduler, Run, Thread, Delivery, Attention, and Outbox."""
+
+        summary_artifact_id = summary_artifact_id or primary_artifact_id
+        supporting = tuple(dict.fromkeys(supporting_artifact_ids))
+        source_refs = tuple(dict.fromkeys(value.strip() for value in source_refs if value.strip()))
+        artifact_ids = (
+            primary_artifact_id,
+            summary_artifact_id,
+            verifier_result_artifact_id,
+            *supporting,
+        )
+        if any(not value.startswith("artifact:sha256:") for value in artifact_ids):
+            raise ValueError("Delivery fields must contain Artifact CAS references")
+        now = to_timestamp(self._clock())
+        with self._transaction() as connection:
+            job_row = self._assert_live_worker_claim(connection, claim, now)
+            projection = self._get_thread_in_transaction(connection, claim.thread_id)
+            if projection is None:
+                raise NotFound(f"thread not found: {claim.thread_id}")
+            run = projection.run(claim.run_id)
+            if run is None:
+                raise NotFound(f"run not found: {claim.run_id}")
+            if run.state != RunState.RUNNING or projection.active_run_id != claim.run_id:
+                raise InvalidTransition("only the active claimed Run may prepare a Delivery")
+            if run.executor_key != executor_key or str(job_row["executor_key"]) != executor_key:
+                raise InvalidTransition("Delivery executor does not match the claimed Run")
+            prior = connection.execute(
+                "SELECT * FROM deliveries WHERE thread_id = ? ORDER BY version DESC LIMIT 1",
+                (claim.thread_id,),
+            ).fetchone()
+            version = int(prior["version"]) + 1 if prior is not None else 1
+            previous_delivery_id = str(prior["delivery_id"]) if prior is not None else None
+            delivery_id = uuid5(
+                NAMESPACE_URL,
+                f"copenguin:{claim.thread_id}:{claim.run_id}:delivery:{version}",
+            ).hex
+            allowed_decisions = ("accept", "revise", "reject", "defer", "take_over")
+            delivery_event = self._insert_event(
+                connection,
+                EventDraft(
+                    stream_type="delivery",
+                    stream_id=delivery_id,
+                    project_id=projection.project_id,
+                    thread_id=claim.thread_id,
+                    branch_id=run.branch_id,
+                    run_id=claim.run_id,
+                    correlation_id=f"worker-claim:{claim.lease_id}",
+                    event_type="delivery.prepared",
+                    actor=claim.worker_id,
+                    occurred_at=now,
+                    payload={
+                        "delivery_id": delivery_id,
+                        "version": version,
+                        "primary_artifact_id": primary_artifact_id,
+                        "summary_artifact_id": summary_artifact_id,
+                        "supporting_artifact_ids": list(supporting),
+                        "verifier_result_artifact_id": verifier_result_artifact_id,
+                        "source_refs": list(source_refs),
+                        "previous_delivery_id": previous_delivery_id,
+                        "allowed_decisions": list(allowed_decisions),
+                        "sensitivity": sensitivity,
+                        "export_policy": export_policy,
+                    },
+                ),
+            )
+            recorded = self._insert_event(
+                connection,
+                EventDraft(
+                    stream_type="thread",
+                    stream_id=claim.thread_id,
+                    project_id=projection.project_id,
+                    thread_id=claim.thread_id,
+                    branch_id=run.branch_id,
+                    run_id=claim.run_id,
+                    correlation_id=f"worker-claim:{claim.lease_id}",
+                    causation_id=delivery_event.event_id,
+                    event_type="delivery.recorded",
+                    actor=claim.worker_id,
+                    occurred_at=now,
+                    schema_version=2,
+                    payload={
+                        "delivery_id": delivery_id,
+                        "artifact_ids": [primary_artifact_id, *supporting],
+                    },
+                ),
+            )
+            projection = reduce_thread(projection, recorded)
+            run_event = self._insert_event(
+                connection,
+                EventDraft(
+                    stream_type="thread",
+                    stream_id=claim.thread_id,
+                    project_id=projection.project_id,
+                    thread_id=claim.thread_id,
+                    branch_id=run.branch_id,
+                    run_id=claim.run_id,
+                    correlation_id=f"worker-claim:{claim.lease_id}",
+                    causation_id=recorded.event_id,
+                    event_type="run.state_changed",
+                    actor=claim.worker_id,
+                    occurred_at=now,
+                    payload={
+                        "run_id": claim.run_id,
+                        "from": RunState.RUNNING.value,
+                        "to": RunState.COMPLETED.value,
+                        "output_artifact_id": primary_artifact_id,
+                        "executor_key": executor_key,
+                        "executor_version": executor_version,
+                        "verifier_result_artifact_id": verifier_result_artifact_id,
+                        "fencing_token": claim.fencing_token,
+                    },
+                ),
+            )
+            projection = reduce_thread(projection, run_event)
+            thread_event = self._insert_event(
+                connection,
+                EventDraft(
+                    stream_type="thread",
+                    stream_id=claim.thread_id,
+                    project_id=projection.project_id,
+                    thread_id=claim.thread_id,
+                    branch_id=run.branch_id,
+                    run_id=claim.run_id,
+                    correlation_id=f"worker-claim:{claim.lease_id}",
+                    causation_id=run_event.event_id,
+                    event_type="thread.state_changed",
+                    actor=claim.worker_id,
+                    occurred_at=now,
+                    payload={
+                        "from": projection.actual_state.value,
+                        "to": ThreadState.DELIVERED.value,
+                        "reason": "verified_delivery_prepared",
+                    },
+                ),
+            )
+            projection = reduce_thread(projection, thread_event)
+            attention_event = self._insert_event(
+                connection,
+                EventDraft(
+                    stream_type="thread",
+                    stream_id=claim.thread_id,
+                    project_id=projection.project_id,
+                    thread_id=claim.thread_id,
+                    branch_id=run.branch_id,
+                    run_id=claim.run_id,
+                    correlation_id=f"worker-claim:{claim.lease_id}",
+                    causation_id=thread_event.event_id,
+                    event_type="thread.attention_changed",
+                    actor=claim.worker_id,
+                    occurred_at=now,
+                    payload={
+                        "from": projection.attention_state.value,
+                        "to": AttentionState.DELIVERY_READY.value,
+                        "reason": "delivery_requires_owner_decision",
+                    },
+                ),
+            )
+            projection = reduce_thread(projection, attention_event)
+            self._upsert_thread_projection(connection, projection)
+            connection.execute(
+                """
+                INSERT INTO deliveries(
+                    delivery_id, thread_id, run_id, version, state, summary_artifact_id,
+                    primary_artifact_id, supporting_artifact_ids_json, source_refs_json,
+                    verifier_result_artifact_id, previous_delivery_id,
+                    allowed_decisions_json, sensitivity, export_policy, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    delivery_id,
+                    claim.thread_id,
+                    claim.run_id,
+                    version,
+                    DeliveryState.PREPARED.value,
+                    summary_artifact_id,
+                    primary_artifact_id,
+                    canonical_json(supporting),
+                    canonical_json(source_refs),
+                    verifier_result_artifact_id,
+                    previous_delivery_id,
+                    canonical_json(allowed_decisions),
+                    sensitivity,
+                    export_policy,
+                    now,
+                ),
+            )
+            connection.execute(
+                """
+                UPDATE scheduler_jobs
+                SET state = ?, lease_owner = NULL, lease_id = NULL,
+                    lease_expires_at = NULL, last_error = NULL, updated_at = ?
+                WHERE run_id = ?
+                """,
+                (JobState.COMPLETED.value, now, claim.run_id),
+            )
+            scheduler_event = self._insert_event(
+                connection,
+                EventDraft(
+                    stream_type="scheduler-run",
+                    stream_id=claim.run_id,
+                    project_id=projection.project_id,
+                    thread_id=claim.thread_id,
+                    branch_id=run.branch_id,
+                    run_id=claim.run_id,
+                    correlation_id=f"worker-claim:{claim.lease_id}",
+                    causation_id=attention_event.event_id,
+                    event_type="scheduler.run_completed",
+                    actor=claim.worker_id,
+                    occurred_at=now,
+                    payload={
+                        "lease_id": claim.lease_id,
+                        "fencing_token": claim.fencing_token,
+                        "attempt": int(job_row["attempts"]),
+                        "executor_key": executor_key,
+                        "executor_version": executor_version,
+                        "output_artifact_id": primary_artifact_id,
+                        "delivery_id": delivery_id,
+                    },
+                ),
+            )
+            outbox_id = uuid5(NAMESPACE_URL, f"copenguin:{delivery_id}:delivery-ready").hex
+            destination = notification_destination or f"thread:{claim.thread_id}"
+            idempotency_key = f"delivery:{delivery_id}:ready:v1"
+            connection.execute(
+                """
+                INSERT INTO runtime_outbox(
+                    outbox_id, idempotency_key, thread_id, run_id, kind, channel,
+                    destination, payload_artifact_id, state, attempts, available_at,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+                """,
+                (
+                    outbox_id,
+                    idempotency_key,
+                    claim.thread_id,
+                    claim.run_id,
+                    "delivery_ready",
+                    notification_channel,
+                    destination,
+                    summary_artifact_id,
+                    OutboxState.PENDING.value,
+                    now,
+                    now,
+                    now,
+                ),
+            )
+            self._insert_event(
+                connection,
+                EventDraft(
+                    stream_type="delivery",
+                    stream_id=delivery_id,
+                    project_id=projection.project_id,
+                    thread_id=claim.thread_id,
+                    branch_id=run.branch_id,
+                    run_id=claim.run_id,
+                    causation_id=scheduler_event.event_id,
+                    event_type="delivery.notification_enqueued",
+                    actor="outbox",
+                    occurred_at=now,
+                    payload={
+                        "delivery_id": delivery_id,
+                        "outbox_id": outbox_id,
+                        "idempotency_key": idempotency_key,
+                        "channel": notification_channel,
+                        "destination": destination,
+                    },
+                ),
+            )
+            job = connection.execute(
+                "SELECT * FROM scheduler_jobs WHERE run_id = ?", (claim.run_id,)
+            ).fetchone()
+            delivery = connection.execute(
+                "SELECT * FROM deliveries WHERE delivery_id = ?", (delivery_id,)
+            ).fetchone()
+            outbox = connection.execute(
+                "SELECT * FROM runtime_outbox WHERE outbox_id = ?", (outbox_id,)
+            ).fetchone()
+            assert job is not None and delivery is not None and outbox is not None
+            return (
+                self._row_to_job(job),
+                projection,
+                self._row_to_delivery(delivery),
+                self._row_to_outbox(outbox),
+            )
+
+    def get_step(self, step_id: str) -> StepRecord:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM runtime_steps WHERE step_id = ?", (step_id,)
+            ).fetchone()
+        if row is None:
+            raise NotFound(f"step not found: {step_id}")
+        return self._row_to_step(row)
+
+    def list_steps(self, *, run_id: str, limit: int = 100) -> list[StepRecord]:
+        if limit < 1:
+            raise ValueError("limit must be at least 1")
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM runtime_steps WHERE run_id = ?
+                ORDER BY ordinal ASC, attempt ASC LIMIT ?
+                """,
+                (run_id, limit),
+            ).fetchall()
+        return [self._row_to_step(row) for row in rows]
+
+    def get_delivery(self, delivery_id: str) -> DeliveryRecord:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM deliveries WHERE delivery_id = ?", (delivery_id,)
+            ).fetchone()
+        if row is None:
+            raise NotFound(f"delivery not found: {delivery_id}")
+        return self._row_to_delivery(row)
+
+    def present_delivery(self, delivery_id: str, *, actor: str) -> DeliveryRecord:
+        """Record that a prepared Delivery crossed into an owner-visible surface."""
+
+        actor = actor.strip()
+        if not actor:
+            raise ValueError("actor is required")
+        now = to_timestamp(self._clock())
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM deliveries WHERE delivery_id = ?", (delivery_id,)
+            ).fetchone()
+            if row is None:
+                raise NotFound(f"delivery not found: {delivery_id}")
+            delivery = self._row_to_delivery(row)
+            if delivery.state == DeliveryState.PRESENTED:
+                return delivery
+            if delivery.state != DeliveryState.PREPARED:
+                raise InvalidTransition("only a prepared Delivery may be presented")
+            projection = self._get_thread_in_transaction(connection, delivery.thread_id)
+            if projection is None:
+                raise NotFound(f"thread not found: {delivery.thread_id}")
+            run = projection.run(delivery.run_id)
+            if run is None:
+                raise NotFound(f"run not found: {delivery.run_id}")
+            self._insert_event(
+                connection,
+                EventDraft(
+                    stream_type="delivery",
+                    stream_id=delivery.delivery_id,
+                    project_id=projection.project_id,
+                    thread_id=delivery.thread_id,
+                    branch_id=run.branch_id,
+                    run_id=delivery.run_id,
+                    event_type="delivery.presented",
+                    actor=actor,
+                    occurred_at=now,
+                    payload={"delivery_id": delivery.delivery_id},
+                ),
+            )
+            connection.execute(
+                "UPDATE deliveries SET state = ?, presented_at = ? WHERE delivery_id = ?",
+                (DeliveryState.PRESENTED.value, now, delivery.delivery_id),
+            )
+            updated = connection.execute(
+                "SELECT * FROM deliveries WHERE delivery_id = ?", (delivery.delivery_id,)
+            ).fetchone()
+            assert updated is not None
+            return self._row_to_delivery(updated)
+
+    def list_deliveries(
+        self,
+        *,
+        thread_id: str | None = None,
+        state: DeliveryState | None = None,
+        limit: int = 100,
+    ) -> list[DeliveryRecord]:
+        if limit < 1:
+            raise ValueError("limit must be at least 1")
+        clauses: list[str] = []
+        values: list[Any] = []
+        if thread_id is not None:
+            clauses.append("thread_id = ?")
+            values.append(thread_id)
+        if state is not None:
+            clauses.append("state = ?")
+            values.append(state.value)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        values.append(limit)
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"SELECT * FROM deliveries {where} ORDER BY created_at DESC LIMIT ?",  # noqa: S608
+                values,
+            ).fetchall()
+        return [self._row_to_delivery(row) for row in rows]
+
+    def list_outbox(
+        self,
+        *,
+        state: OutboxState | None = None,
+        limit: int = 100,
+    ) -> list[OutboxItem]:
+        if limit < 1:
+            raise ValueError("limit must be at least 1")
+        if state is None:
+            query = "SELECT * FROM runtime_outbox ORDER BY created_at DESC LIMIT ?"
+            values: tuple[Any, ...] = (limit,)
+        else:
+            query = "SELECT * FROM runtime_outbox WHERE state = ? ORDER BY created_at DESC LIMIT ?"
+            values = (state.value, limit)
+        with self._connect() as connection:
+            rows = connection.execute(query, values).fetchall()
+        return [self._row_to_outbox(row) for row in rows]
 
     def get_job(self, run_id: str) -> SchedulerJob:
         with self._connect() as connection:
@@ -3870,6 +4629,72 @@ class SQLiteRuntimeRepository:
             lease_id=row["lease_id"],
             fencing_token=int(row["fencing_token"]),
             lease_expires_at=row["lease_expires_at"],
+            last_error=row["last_error"],
+        )
+
+    def _row_to_step(self, row: sqlite3.Row) -> StepRecord:
+        return StepRecord(
+            step_id=str(row["step_id"]),
+            thread_id=str(row["thread_id"]),
+            run_id=str(row["run_id"]),
+            ordinal=int(row["ordinal"]),
+            kind=StepKind(str(row["kind"])),
+            state=StepState(str(row["state"])),
+            attempt=int(row["attempt"]),
+            provider_key=str(row["provider_key"]),
+            provider_version=str(row["provider_version"]),
+            input_artifact_ids=tuple(json.loads(str(row["input_artifact_ids_json"]))),
+            output_artifact_ids=tuple(json.loads(str(row["output_artifact_ids_json"]))),
+            budget=dict(json.loads(str(row["budget_json"]))),
+            config_snapshot_id=row["config_snapshot_id"],
+            verifier_result_artifact_id=row["verifier_result_artifact_id"],
+            error_code=row["error_code"],
+            error=row["error"],
+            created_at=str(row["created_at"]),
+            started_at=row["started_at"],
+            completed_at=row["completed_at"],
+        )
+
+    def _row_to_delivery(self, row: sqlite3.Row) -> DeliveryRecord:
+        return DeliveryRecord(
+            delivery_id=str(row["delivery_id"]),
+            thread_id=str(row["thread_id"]),
+            run_id=str(row["run_id"]),
+            version=int(row["version"]),
+            state=DeliveryState(str(row["state"])),
+            summary_artifact_id=str(row["summary_artifact_id"]),
+            primary_artifact_id=str(row["primary_artifact_id"]),
+            supporting_artifact_ids=tuple(json.loads(str(row["supporting_artifact_ids_json"]))),
+            source_refs=tuple(json.loads(str(row["source_refs_json"]))),
+            verifier_result_artifact_id=str(row["verifier_result_artifact_id"]),
+            previous_delivery_id=row["previous_delivery_id"],
+            allowed_decisions=tuple(json.loads(str(row["allowed_decisions_json"]))),
+            sensitivity=str(row["sensitivity"]),
+            export_policy=str(row["export_policy"]),
+            created_at=str(row["created_at"]),
+            presented_at=row["presented_at"],
+            decided_at=row["decided_at"],
+        )
+
+    def _row_to_outbox(self, row: sqlite3.Row) -> OutboxItem:
+        return OutboxItem(
+            outbox_id=str(row["outbox_id"]),
+            idempotency_key=str(row["idempotency_key"]),
+            thread_id=str(row["thread_id"]),
+            run_id=str(row["run_id"]),
+            kind=str(row["kind"]),
+            channel=str(row["channel"]),
+            destination=str(row["destination"]),
+            payload_artifact_id=str(row["payload_artifact_id"]),
+            state=OutboxState(str(row["state"])),
+            attempts=int(row["attempts"]),
+            available_at=str(row["available_at"]),
+            created_at=str(row["created_at"]),
+            updated_at=str(row["updated_at"]),
+            lease_owner=row["lease_owner"],
+            lease_id=row["lease_id"],
+            lease_expires_at=row["lease_expires_at"],
+            receipt_artifact_id=row["receipt_artifact_id"],
             last_error=row["last_error"],
         )
 

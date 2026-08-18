@@ -10,9 +10,11 @@ from uuid import uuid4
 
 import uvicorn
 
+from copenguin.demo import load_demo_source, run_source_to_artifact_demo
 from super_agent_runtime import (
     AgentSnapshot,
     ArtifactCAS,
+    DecisionRecordVerifier,
     InboxCoordinator,
     IngressAdapter,
     SnapshotStore,
@@ -38,6 +40,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="copenguin")
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("serve", help="Run the Feishu webhook server.")
+    subparsers.add_parser(
+        "feishu-long-connection",
+        help="Run the authenticated Feishu WebSocket transport (requires the feishu extra).",
+    )
     local = subparsers.add_parser("local", help="Send one local test message through the agent.")
     local.add_argument("message")
     local.add_argument("--message-id", help="Stable channel id used to retry the same message.")
@@ -64,6 +70,15 @@ def main() -> None:
     source_task.add_argument("--access-envelope", default="local-user-selected")
     artifact = subparsers.add_parser("artifact", help="Print one local Artifact by id.")
     artifact.add_argument("artifact_id")
+    demo = subparsers.add_parser(
+        "demo",
+        help="Run a credential-free Source-to-Artifact demo and print its Artifact.",
+    )
+    demo.add_argument("--source", type=Path, help="Optional UTF-8 JSON object to use as input.")
+    demo.add_argument("--project", default="demo")
+    demo.add_argument(
+        "--json", action="store_true", help="Print the complete machine-readable result."
+    )
     args = parser.parse_args()
 
     if args.command == "local":
@@ -90,6 +105,12 @@ def main() -> None:
         return
     if args.command == "artifact":
         _print_artifact(args.artifact_id)
+        return
+    if args.command == "demo":
+        _run_demo(source_file=args.source, project_id=args.project, as_json=args.json)
+        return
+    if args.command == "feishu-long-connection":
+        _run_feishu_long_connection()
         return
 
     settings = load_settings()
@@ -213,6 +234,7 @@ def _run_worker(
         repository=repository,
         artifacts=artifacts,
         executors=(SourceToArtifactExecutor(artifacts),),
+        verifiers=(DecisionRecordVerifier(artifacts),),
         config=WorkerHostConfig(
             worker_id=f"local-worker-{uuid4().hex[:12]}",
             concurrency=(concurrency if concurrency is not None else settings.worker_concurrency),
@@ -309,6 +331,43 @@ def _print_artifact(artifact_id: str) -> None:
         print(content.decode("utf-8", errors="replace"))
         return
     print(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True))
+
+
+def _run_demo(*, source_file: Path | None, project_id: str, as_json: bool) -> None:
+    settings = load_settings()
+    try:
+        source = load_demo_source(source_file)
+        result = run_source_to_artifact_demo(
+            data_dir=settings.data_dir,
+            source=source,
+            project_id=project_id,
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    if as_json:
+        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+        return
+    artifact = result["artifact"]
+    print("CoPenguin local demo completed")
+    print(f"  status: {result['status']}")
+    print(f"  thread: {result['thread_id']}")
+    print(f"  replay verified: {str(result['replay_verified']).lower()}")
+    print(f"  artifact: {result['artifact_id']}")
+    print(f"  local runtime: {result['runtime_dir']}")
+    print()
+    print(json.dumps(artifact, ensure_ascii=False, indent=2, sort_keys=True))
+
+
+def _run_feishu_long_connection() -> None:
+    from .feishu_long_connection import FeishuLongConnectionRunner
+    from .server import create_app
+
+    settings = load_settings()
+    app = create_app(settings)
+    FeishuLongConnectionRunner(
+        settings=settings,
+        service=app.state.feishu_service,
+    ).start()
 
 
 if __name__ == "__main__":

@@ -19,17 +19,18 @@
 <p align="center">
   <a href="https://github.com/2sao7sao/CoPenguin/actions/workflows/ci.yml"><img src="https://github.com/2sao7sao/CoPenguin/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI" /></a>
   <img src="https://img.shields.io/badge/python-3.11%2B-ff5aa5" alt="Python 3.11+" />
-  <img src="https://img.shields.io/badge/version-v0.1.0-b8eee4" alt="Version 0.1.0" />
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-b8eee4" alt="Apache-2.0" /></a>
   <img src="https://img.shields.io/badge/posture-local--first-ff5aa5" alt="Local-first" />
 </p>
 
 <img src="assets/readme-banner.svg" alt="CoPenguin banner with its chibi penguin-suit mascot" width="100%" />
 
 > [!IMPORTANT]
-> **Status: early Alpha.** V2-001 through V2-003 have branch-level test coverage;
-> V2-004 and the end-to-end Source-to-Artifact closure are still under active
-> development. CoPenguin does not autonomously promote memory, skills, hooks,
-> or permissions.
+> **Status: early Alpha.** V2-001 through V2-006 now have test-backed slices on
+> the convergence branch: a source can reach a verified, inspectable Delivery
+> through replay-visible Steps and one atomic terminal transaction. V2-007 owner
+> decisions and transactional channel dispatch remain next. CoPenguin never
+> autonomously promotes memory, skills, hooks, or permissions.
 
 A useful personal agent should accept work through one natural chat surface without
 turning every request into one tangled transcript. CoPenguin routes each message as
@@ -51,9 +52,9 @@ one inbox
   -> conservative route: chat | new task | task update | ambiguous
   -> durable TaskThread + versioned snapshots
   -> fenced worker + recoverable checkpoint
-  -> action intent + approval when required
-  -> provider execution + receipt + reconciliation
-  -> inspectable delivery and governed learning candidates
+  -> replay-visible Steps + optional governed external action
+  -> deterministic verifier
+  -> atomic Delivery + Outbox intent + governed learning candidates
 ```
 
 The Alpha Golden Path is **Source → Inspectable Artifact**: turn an explicitly selected
@@ -61,18 +62,19 @@ source into a reviewable result, then let the owner accept, revise, reject, or p
 it. The final learning step is deliberately a candidate boundary: runtime evidence may
 propose a memory, skill, hook, or permission change, but it cannot promote itself.
 
-## What Ships in v0.1.0
+## Current Alpha Surface
 
 | Surface | Current capability |
 | --- | --- |
 | Durable history | Append-only events, deterministic replay, projection hashes, causal IDs |
 | Task isolation | Project → `TaskThread` → Run, with a single-writer rule per Thread |
 | Parallel work | Durable queue, worker leases, fencing tokens, shared/exclusive resource locks |
-| Recovery | Immutable Artifact CAS and Task/Agent/Context snapshots bound to each Run |
+| Recovery | Immutable Artifact CAS, frozen Run snapshots, checkpoints, Step attempts |
 | Inbox decisions | Chat, new task, durable task update, control, or owner-confirmed ambiguity |
 | External effects | Intent → approval → provider → Receipt, with crash reconciliation |
-| Operator views | Read-only projections for Threads, inbox routes, actions, and approvals |
-| Entry points | Local CLI plus Feishu webhook MVP with owner allowlist |
+| Trusted closure | Deterministic verifier, versioned Delivery, atomic terminal state + Outbox intent |
+| Operator views | Read-only projections for Threads, Steps, Deliveries, Outbox, routes, actions, approvals |
+| Entry points | Local CLI, Feishu webhook, and optional Feishu long connection |
 | Optional intelligence | Adapters for EvolveMemory and EvolveKB |
 
 ## 5-Minute Local Path
@@ -82,11 +84,28 @@ git clone https://github.com/2sao7sao/CoPenguin.git
 cd CoPenguin
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e ".[dev]"
-pytest -q
+python -m pip install -e .
+copenguin demo
 ```
 
-Send one message through the current local assistant boundary:
+`copenguin demo` needs no Feishu account, API key, model call, or network access.
+It creates an isolated local Runtime, runs two replay-visible Steps, verifies the
+record, atomically prepares a Delivery and Outbox intent, prints the Artifact,
+and reports the local data path. To run the engineering suite, install `.[dev]`
+and execute `pytest -q`.
+
+The same credential-free path works in Docker:
+
+```bash
+docker compose build
+docker compose run --rm copenguin copenguin demo
+docker compose up
+```
+
+After `docker compose up`, health is available at
+`http://127.0.0.1:8787/healthz`.
+
+Send one message through the local assistant boundary:
 
 ```bash
 export COMPUTER_PROVIDER=dry-run
@@ -111,12 +130,25 @@ export COMPUTER_PROVIDER=dry-run
 copenguin serve
 ```
 
+Or use the authenticated long connection without a public webhook:
+
+```bash
+python -m pip install -e ".[feishu]"
+export FEISHU_APP_ID="cli_xxx"
+export FEISHU_APP_SECRET="..."
+copenguin feishu-long-connection
+```
+
 ```bash
 curl http://127.0.0.1:8787/healthz
 ```
 
-`dry-run` performs no desktop mutation. Optional integrations can be installed
-with `python -m pip install -e ".[evolve]"`.
+`dry-run` performs no desktop mutation. A bounded real provider is available on
+macOS through owner-created Apple Shortcuts: set
+`COMPUTER_PROVIDER=macos-shortcuts`, enable it explicitly, and list exact
+Shortcut names in `MACOS_SHORTCUTS_ALLOWLIST`. Every request still enters the
+durable Approval → Intent → fenced execution → Receipt boundary. Optional
+Evolve integrations can be installed with `python -m pip install -e ".[evolve]"`.
 
 ## Why This Is Not Just Chat or a Task Manager
 
@@ -138,11 +170,16 @@ flowchart LR
   R --> Q["Confirmation"]
   T --> S["Snapshots + Artifact CAS"]
   T --> W["Durable Scheduler"]
-  W --> I["Action Intent"]
+  S --> E["Step Engine"]
+  W --> E
+  E --> V["Deterministic Verifier"]
+  V -->|pass| D["Atomic Delivery + Outbox"]
+  V -->|fail| F["Failure record"]
+  E -. "external effect" .-> I["Action Intent"]
   I --> A["Approval Gate"]
   A --> P["Provider"]
   P --> X["Receipt + Reconciliation"]
-  X --> D["Inspectable Delivery"]
+  X -. "evidence" .-> E
   D --> M["Memory Candidate"]
   D --> K["Knowledge / Skill Proposal"]
   M --> G["Independent Governance"]
@@ -193,13 +230,17 @@ The first concrete recipe is specified in the
 [Feishu Memory and Knowledge System v0.1](docs/FEISHU_KNOWLEDGE_SYSTEM_SPEC_V0.1.md):
 an explicitly selected Feishu source becomes a verified Project Decision Record,
 then an accepted Delivery can be published to a Wiki draft through durable approval.
-The first three convergence slices have passed branch-level acceptance:
+The first six convergence slices have test-backed acceptance on this branch:
 [V2-001 Unified Ingress](docs/V2_001_UNIFIED_INGRESS.md) provides restart-safe message
 identity; [V2-002 Durable Product Approvals](docs/V2_002_DURABLE_PRODUCT_APPROVALS.md)
 binds computer actions to durable Intent, Approval, claim, Artifact, and Receipt
 records; [V2-003 Durable Thread Updates](docs/V2_003_DURABLE_THREAD_UPDATES.md) makes
 supplements, goal changes, method Branches, cancellation, and ambiguous route decisions
-durable. V2-004 is the next ordered slice.
+durable; [V2-004 Worker Host](docs/V2_004_WORKER_HOST.md) adds bounded execution;
+[V2-005 Step + Verifier](docs/V2_005_STEP_VERIFIER.md) creates causal Step and
+verification evidence; and [V2-006 Atomic Delivery](docs/V2_006_ATOMIC_DELIVERY.md)
+closes every terminal database surface in one transaction. V2-007 owner Delivery
+decisions are the next ordered slice.
 
 ## Stable vs Prototype
 
@@ -208,6 +249,10 @@ durable. V2-004 is the next ordered slice.
 - deterministic Thread/Run replay and optimistic revision checks;
 - SQLite event journal plus disposable read projections;
 - durable scheduling, lease fencing, resource conflicts, and checkpoint recovery;
+- bounded Worker Host, Executor routing, replay-visible transform/verifier Steps,
+  and deterministic DecisionRecordVerifier;
+- atomic Run/Thread/scheduler/Delivery/Attention/Outbox finalization with injected
+  rollback coverage;
 - Feishu/local unified ingress, restart-safe inbound dedupe, normalized message
   Artifacts, and conservative persistent route decisions;
 - durable Thread updates with immutable replacement snapshots/Runs, method-change
@@ -215,19 +260,37 @@ durable. V2-004 is the next ordered slice.
 - durable Action Intents, Receipts, approvals, expiry, and reconciliation;
 - `/computer`, `/approve`, and `/deny` use the durable action boundary; requester-only
   policy snapshots and decision-evidence Artifacts survive restart;
-- Feishu parsing, owner allowlist, text approval commands, `dry-run`, and opt-in allowlisted `local-shell`.
+- Feishu webhook and official-SDK long-connection transports, owner allowlist,
+  interactive/text approval, and durable callback dedupe;
+- `dry-run`, opt-in allowlisted `local-shell`, and opt-in exact-allowlist
+  `macos-shortcuts` providers.
 
 ### Deliberately incomplete
 
 - first-seen messages still pass from durable Ingress to the compatibility assistant;
-  its computer gateway temporarily executes claimed Actions inline until V2-004;
-- outbound response delivery is not transactional until the Outbox slice;
-- Step/verifier/Delivery events and atomic terminal completion are next runtime slices;
-- interactive Feishu cards, long-connection mode, and a real computer-use provider are not shipped;
+  its computer gateway executes claimed Actions inline rather than through Worker Host;
+- Delivery notification intent is transactional, but channel dispatch and send
+  Receipt are not yet connected to the Outbox;
+- accept/revise/reject/defer/take-over decisions and immutable revision Runs are V2-007;
+- Feishu long connection and cards have mocked contract coverage but still need a
+  credential-backed real-app smoke test;
+- broad vision-driven computer use is not shipped; the real macOS provider is
+  deliberately limited to pre-existing exact-allowlist Shortcuts;
 - Product Evidence is specified but not an operational validation result;
 - versioned hooks, self-loop monitoring, shadow evaluation, and autonomous promotion are planned, not enabled.
 
 ## Current Commands
+
+CLI:
+
+- `copenguin demo [--json]`
+- `copenguin serve`
+- `copenguin feishu-long-connection`
+- `copenguin source-task <source.json>`
+- `copenguin worker --once`
+- `copenguin artifact <artifact-id>`
+
+Chat:
 
 - `/status`
 - `/remember <text>`
@@ -259,6 +322,7 @@ are detected for compatibility; explicit `COPENGUIN_DATA_DIR` always wins.
 - computer tasks require approval by default;
 - `COMPUTER_PROVIDER=dry-run` performs no real action;
 - `local-shell` is opt-in and only runs allowlisted executables;
+- `macos-shortcuts` is opt-in and only runs exact allowlisted Shortcut names;
 - encrypted Feishu webhooks are rejected in this MVP instead of being silently mishandled.
 
 See [Security](docs/SECURITY.md) and [Feishu setup](docs/FEISHU_SETUP.md).
@@ -280,3 +344,14 @@ banner keeps CoPenguin related to the
 - [Asset provenance and refresh checklist](docs/assets/README.md)
 
 Keep the standalone PNG and SVG marks when refreshing the banner.
+
+## Contributing and release status
+
+See [CONTRIBUTING.md](CONTRIBUTING.md), the [Code of Conduct](CODE_OF_CONDUCT.md),
+[Security Policy](SECURITY.md), [Changelog](CHANGELOG.md), and the
+[repository convergence record](docs/REPOSITORY_CONVERGENCE.md). The package
+declares version `0.1.0`, but no release should be treated as published until the
+matching Git tag and GitHub Release exist. Release steps are documented in
+[docs/RELEASING.md](docs/RELEASING.md).
+
+CoPenguin is licensed under [Apache-2.0](LICENSE).

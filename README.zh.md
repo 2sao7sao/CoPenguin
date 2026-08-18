@@ -19,16 +19,17 @@
 <p align="center">
   <a href="https://github.com/2sao7sao/CoPenguin/actions/workflows/ci.yml"><img src="https://github.com/2sao7sao/CoPenguin/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI" /></a>
   <img src="https://img.shields.io/badge/python-3.11%2B-ff5aa5" alt="Python 3.11+" />
-  <img src="https://img.shields.io/badge/version-v0.1.0-b8eee4" alt="Version 0.1.0" />
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-b8eee4" alt="Apache-2.0" /></a>
   <img src="https://img.shields.io/badge/posture-local--first-ff5aa5" alt="Local-first" />
 </p>
 
 <img src="assets/readme-banner.svg" alt="CoPenguin Banner 与企鹅连体服 Q 版角色" width="100%" />
 
 > [!IMPORTANT]
-> **当前状态：早期 Alpha。** V2-001 至 V2-003 已具备分支级测试覆盖；
-> V2-004 与完整的 Source-to-Artifact 闭环仍在开发。CoPenguin 默认不会自行晋升
-> 记忆、Skill、Hook 或权限。
+> **当前状态：早期 Alpha。** 收敛分支中的 V2-001 至 V2-006 已有测试支撑：
+> 一个来源可以经过可 replay 的 Step 和一次原子终结事务，成为已验证、可检查的 Delivery。
+> V2-007 的用户交付决定与事务化渠道发送仍是下一步。CoPenguin 不会自行晋升记忆、
+> Skill、Hook 或权限。
 
 真正有用的私人助理，应该允许用户只面对一个自然聊天入口，又不会把所有请求揉成一段
 混乱的长对话。CoPenguin 会把每条消息判断为普通对话、新任务、已有任务更新，或需要
@@ -48,27 +49,28 @@ CoPenguin 始终保留编排权与策略边界。
   -> 保守路由：普通对话 | 新任务 | 任务更新 | 目标不明确
   -> 持久 TaskThread + 版本化快照
   -> 带 fencing 的 Worker + 可恢复 checkpoint
-  -> Action Intent + 必要时审批
-  -> 外部 Provider 执行 + Receipt + 事故对账
-  -> 可检查交付 + 受治理的学习候选项
+  -> 可 replay Step + 可选的受治理外部动作
+  -> 确定性 Verifier
+  -> 原子 Delivery + Outbox 意图 + 受治理的学习候选项
 ```
 
 Alpha 主路径是 **Source → Inspectable Artifact / 来源到可检查产物**：把用户明确选择的
 来源转成可审查结果，再由主人接受、修改、拒绝或发布。最后一步刻意停在“候选项”：
 运行证据可以提出记忆、Skill、Hook 或权限变更，但不能自行把提案升级为正式能力。
 
-## v0.1.0 已实现
+## 当前 Alpha 能力面
 
 | 能力面 | 当前能力 |
 | --- | --- |
 | 持久历史 | Append-only 事件、确定性 replay、projection hash、因果 ID |
 | 任务隔离 | 项目 → `TaskThread` → Run；同一 Thread 的主 Run 遵守 single-writer |
 | 并发运行 | 持久队列、Worker lease、fencing token、共享/独占资源锁 |
-| 恢复能力 | 不可变 Artifact CAS，以及绑定到每个 Run 的 Task/Agent/Context 快照 |
+| 恢复能力 | 不可变 Artifact CAS、Run 冻结快照、checkpoint 与 Step 尝试记录 |
 | 入口判断 | 区分对话、新任务、任务更新、控制命令与需要确认的歧义 |
 | 外部动作 | Intent → 审批 → Provider → Receipt，并支持崩溃对账 |
-| 操作视图 | Thread、路由、动作、审批的只读 projection API |
-| 当前入口 | 本地 CLI，以及带 owner allowlist 的飞书 webhook MVP |
+| 可信闭环 | 确定性 Verifier、版本化 Delivery、原子终态与 Outbox 意图 |
+| 操作视图 | Thread、Step、Delivery、Outbox、路由、动作与审批的只读 API |
+| 当前入口 | 本地 CLI、飞书 webhook 与可选飞书长连接 |
 | 可选智能层 | EvolveMemory 与 EvolveKB adapter |
 
 ## 5 分钟本地体验
@@ -78,11 +80,25 @@ git clone https://github.com/2sao7sao/CoPenguin.git
 cd CoPenguin
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e ".[dev]"
-pytest -q
+python -m pip install -e .
+copenguin demo
 ```
 
-通过当前本地助理边界发送一条消息：
+`copenguin demo` 不需要飞书账号、API Key、模型调用或网络。它会创建一套隔离的
+本地 Runtime，执行两个可 replay Step，验证记录，在一个事务中准备 Delivery 与
+Outbox 意图，打印产物和本地数据路径。开发验收可安装 `.[dev]` 后运行 `pytest -q`。
+
+同一条零凭据路径也可以通过 Docker 运行：
+
+```bash
+docker compose build
+docker compose run --rm copenguin copenguin demo
+docker compose up
+```
+
+`docker compose up` 后可访问 `http://127.0.0.1:8787/healthz`。
+
+通过本地助理边界发送一条消息：
 
 ```bash
 export COMPUTER_PROVIDER=dry-run
@@ -106,11 +122,23 @@ export COMPUTER_PROVIDER=dry-run
 copenguin serve
 ```
 
+也可以不暴露公网 webhook，使用经过 App 凭据认证的长连接：
+
+```bash
+python -m pip install -e ".[feishu]"
+export FEISHU_APP_ID="cli_xxx"
+export FEISHU_APP_SECRET="..."
+copenguin feishu-long-connection
+```
+
 ```bash
 curl http://127.0.0.1:8787/healthz
 ```
 
-`dry-run` 不会修改桌面状态。需要 Evolve 集成时，可执行
+`dry-run` 不会修改桌面状态。macOS 上提供一个有边界的真实 Provider：先由用户创建
+Apple Shortcut，再设置 `COMPUTER_PROVIDER=macos-shortcuts`、显式开启它，并在
+`MACOS_SHORTCUTS_ALLOWLIST` 中列出精确名称。所有请求仍经过持久 Approval → Intent →
+fenced execution → Receipt。需要 Evolve 集成时，可执行
 `python -m pip install -e ".[evolve]"`。
 
 ## 为什么不只是 Chat 或任务管理器
@@ -133,11 +161,16 @@ flowchart LR
   R --> Q["请求确认"]
   T --> S["快照 + Artifact CAS"]
   T --> W["持久调度器"]
-  W --> I["Action Intent"]
+  S --> E["Step Engine"]
+  W --> E
+  E --> V["确定性 Verifier"]
+  V -->|通过| D["原子 Delivery + Outbox"]
+  V -->|失败| F["失败记录"]
+  E -. "外部动作" .-> I["Action Intent"]
   I --> A["审批门"]
   A --> P["外部 Provider"]
   P --> X["Receipt + 对账"]
-  X --> D["可检查交付"]
+  X -. "执行证据" .-> E
   D --> M["记忆候选项"]
   D --> K["知识 / Skill 提案"]
   M --> G["独立治理"]
@@ -182,12 +215,16 @@ Hook/self-loop 边界、按顺序拆分的 PR 与 Definition of Done。
 把用户明确选择的飞书来源转成经过验证的项目决策记录，再通过持久审批把已接受的 Delivery
 发布为 Wiki 草稿。
 
-前三个收敛切片已通过分支级验收：
+前六个收敛切片已在当前分支通过测试级验收：
 [V2-001 统一 Ingress](docs/V2_001_UNIFIED_INGRESS.md) 提供跨重启的消息身份；
 [V2-002 持久产品审批](docs/V2_002_DURABLE_PRODUCT_APPROVALS.md) 把 computer action 绑定到
 持久 Intent、Approval、claim、Artifact 与 Receipt；
 [V2-003 持久 Thread 更新](docs/V2_003_DURABLE_THREAD_UPDATES.md) 让补充信息、目标变更、
-方法 Branch、取消和歧义路由决定全部耐久化。V2-004 是下一个工程切片。
+方法 Branch、取消和歧义路由决定全部耐久化；
+[V2-004 Worker Host](docs/V2_004_WORKER_HOST.md) 增加有界执行；
+[V2-005 Step + Verifier](docs/V2_005_STEP_VERIFIER.md) 记录 Step 因果链与验证证据；
+[V2-006 原子 Delivery](docs/V2_006_ATOMIC_DELIVERY.md) 在同一事务关闭全部数据库终态。
+V2-007 用户 Delivery 决定是下一工程切片。
 
 ## 稳定能力与原型边界
 
@@ -196,25 +233,43 @@ Hook/self-loop 边界、按顺序拆分的 PR 与 Definition of Done。
 - Thread/Run 确定性 replay 与 optimistic revision check；
 - SQLite event journal 和可丢弃重建的只读 projection；
 - 持久调度、lease fencing、资源冲突与 checkpoint 恢复；
+- 有界 Worker Host、Executor 路由、可 replay 的 transform/verifier Step 与确定性
+  DecisionRecordVerifier；
+- Run/Thread/scheduler/Delivery/Attention/Outbox 原子终结，并覆盖故障注入回滚；
 - 飞书/本地统一 Ingress、跨重启入站去重、规范化消息 Artifact 与持久保守路由；
 - 持久 Thread 更新、不可变 replacement snapshot/Run、方法 Branch 谱系、取消传播与
   仅限 owner 的路由决定；
 - 持久 Action Intent、Receipt、审批、过期与对账；
 - `/computer`、`/approve` 和 `/deny` 已经过持久动作边界；请求者策略快照和决定证据
   Artifact 可跨重启保留；
-- 飞书解析、owner allowlist、文字审批、`dry-run` 和显式开启的 allowlisted `local-shell`。
+- 飞书 webhook 与官方 SDK 长连接、owner allowlist、交互卡片/文字审批和 callback 去重；
+- `dry-run`、显式开启的 allowlisted `local-shell` 与精确名称 allowlist 的
+  `macos-shortcuts`。
 
 ### 刻意尚未完成
 
-- 首次接收的消息仍会从耐久 Ingress 进入兼容助理；其 computer gateway 暂时内联执行
-  已 claim 的 Action，直到 V2-004 完成；
-- 出站回复在 Outbox 切片完成前还不是事务性的；
-- Step/verifier/Delivery 事件与原子化 terminal completion 仍属于后续 Runtime 切片；
-- 飞书交互卡片、长连接和真实 computer-use provider 尚未交付；
+- 首次接收的消息仍会从耐久 Ingress 进入兼容助理；computer gateway 仍内联执行已
+  claim 的 Action，而不是交给 Worker Host；
+- Delivery 通知意图已事务化，但渠道 dispatcher 与发送 Receipt 尚未接入 Outbox；
+- accept/revise/reject/defer/take-over 与不可变 revision Run 属于 V2-007；
+- 飞书长连接和卡片已有 mock 契约测试，但仍需真实凭据与已发布 App 的 smoke test；
+- 广义视觉 computer-use 尚未交付；真实 macOS Provider 刻意只允许预先创建、精确
+  allowlist 的 Shortcuts；
 - Product Evidence 目前是协议，不是已经得出的市场验证结论；
 - 版本化 Hook、self-loop 监测、影子评估和自治晋升仍在规划中，默认没有启用。
 
 ## 当前命令
+
+CLI：
+
+- `copenguin demo [--json]`
+- `copenguin serve`
+- `copenguin feishu-long-connection`
+- `copenguin source-task <source.json>`
+- `copenguin worker --once`
+- `copenguin artifact <artifact-id>`
+
+聊天命令：
 
 - `/status`
 - `/remember <text>`
@@ -246,6 +301,7 @@ assets/                       可复用的 CoPenguin Logo 与 README Banner
 - computer task 默认需要审批；
 - `COMPUTER_PROVIDER=dry-run` 不执行真实动作；
 - `local-shell` 必须显式开启，并且只能运行 allowlist 中的可执行程序；
+- `macos-shortcuts` 必须显式开启，并且只能运行精确 allowlist 的 Shortcut；
 - 当前 MVP 会拒绝加密飞书 webhook，不会静默误处理。
 
 详见 [安全说明](docs/SECURITY.md) 和 [飞书配置](docs/FEISHU_SETUP.md)。
@@ -264,3 +320,13 @@ assets/                       可复用的 CoPenguin Logo 与 README Banner
 - [素材来源与更新检查表](docs/assets/README.md)
 
 以后即使重做 Banner，也要保留独立 PNG 与 SVG Logo。
+
+## 贡献与发布状态
+
+请阅读 [贡献指南](CONTRIBUTING.md)、[行为准则](CODE_OF_CONDUCT.md)、
+[安全政策](SECURITY.md)、[变更日志](CHANGELOG.md) 与
+[仓库收敛记录](docs/REPOSITORY_CONVERGENCE.md)。当前 package 声明版本为 `0.1.0`，
+但只有匹配的 Git tag 和 GitHub Release 确实存在时，才能视为已经发布；流程见
+[docs/RELEASING.md](docs/RELEASING.md)。
+
+CoPenguin 采用 [Apache-2.0](LICENSE) 开源协议。

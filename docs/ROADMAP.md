@@ -9,9 +9,9 @@ expanding autonomy.
 The accepted Alpha Golden Path is **Source to Inspectable Artifact**. This is a
 scope decision awaiting interview and Pilot evidence, not a validation result.
 
-Engineering proceeds in the accepted `V2-001 -> V2-007` order. V2-001 through V2-003
-have met their branch-level acceptance criteria; V2-004 is next. Each slice must pass
-its own acceptance criteria before the next slice begins.
+Engineering proceeds in the accepted `V2-001 -> V2-007` order. V2-001 through V2-006
+have test-backed implementations in the convergence branch. V2-007 Delivery decisions
+remain next; each slice must pass its own acceptance criteria before promotion.
 
 - [V2 product and engineering direction](V2_PRODUCT_ENGINEERING_DIRECTION.md)
 - [V2 Runtime Contract](V2_RUNTIME_CONTRACT.md)
@@ -44,7 +44,8 @@ behavioral evidence.
 
 - [x] Route Feishu, local UI, and CLI through one durable Ingress boundary
 - [x] Add end-to-end inbound idempotency before route or execution
-- [ ] Add outbound transactional Outbox
+- [x] Atomically enqueue Delivery notification intent through a transactional Outbox
+- [ ] Dispatch Outbox messages with durable channel Receipts
 - [x] Replace the product-path in-memory approval queue with durable Approvals
 - [x] Persist Thread updates, route corrections, confirmation, cancellation,
       and method-change Branch events
@@ -54,13 +55,13 @@ Exit: every real message uses the same state and governance boundary.
 
 ## V2-B: Close the execution and Delivery loop
 
-- [ ] Implement a bounded Worker Host and Executor Protocol
-- [ ] Implement the first bounded recipe: one explicitly selected Feishu source
+- [x] Implement a bounded Worker Host and Executor Protocol
+- [x] Implement the first bounded recipe: one explicitly selected source
       to one inspectable Project Decision Record
-- [ ] Add Step lifecycle, budgets, cancellation, checkpoint, and tool/model trace
-- [ ] Add Verifier Registry and a versioned DecisionRecordVerifier result for
+- [x] Add replay-visible Step lifecycle, bounded metadata, cancellation, and checkpoint
+- [x] Add a versioned DecisionRecordVerifier result for
       evidence, citation, permission, sensitivity, freshness, and actionability
-- [ ] Atomically finalize scheduler, Run, Thread, Delivery, Attention, and Outbox
+- [x] Atomically finalize scheduler, Run, Thread, Delivery, Attention, and Outbox
 - [ ] Persist `accept`, `revise`, `reject`, `defer`, and `take over` decisions
 - [ ] Create a new immutable Run/Delivery version after a revision request
 - [ ] Publish an accepted record to a Feishu Wiki draft only through durable

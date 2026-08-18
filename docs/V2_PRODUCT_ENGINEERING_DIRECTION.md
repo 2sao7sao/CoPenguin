@@ -1,6 +1,6 @@
 # CoPenguin V2 产品与工程优化方向
 
-状态：产品方向与 `V2-001 -> V2-007` 工程实施顺序已确认；V2-001、V2-002 已完成分支验收
+状态：产品方向与 `V2-001 -> V2-007` 工程实施顺序已确认；V2-001 至 V2-006 已完成测试级验收
 
 版本主题：**Trusted Closure / 可信闭环**
 
@@ -25,8 +25,8 @@ CoPenguin 当前最大的优点与最大的问题是同一件事：
 事件日志、Thread/Run replay、scheduler fencing、Artifact CAS、Intent/Receipt、
 持久审批等基础原语已经存在。初始审计发现飞书和 `/computer` 仍绕过这些原语；V2-001
 已统一 Ingress，V2-002 已统一电脑动作的 Approval 与 Receipt，V2-003 已让 Thread 更新、
-方法分支、取消与歧义确认进入持久主链。Worker、Delivery 和用户决定闭环仍待
-V2-004 → V2-007 完成。
+方法分支、取消与歧义确认进入持久主链；V2-004 至 V2-006 已补齐有界 Worker、Step、
+Verifier 与原子 Delivery/Outbox。用户对 Delivery 的决定闭环仍待 V2-007 完成。
 
 因此，V2 不应以“更多工具、更强模型、自动自我进化”为目标，而应完成一条可以实际使用、
 可以中断恢复、可以验证结果、可以积累信任的主链：
@@ -243,7 +243,8 @@ Ingress -> InboxCoordinator -> TaskThread -> Worker
 执行也不会留下 Runtime Intent/Receipt。
 
 V2-002 已删除产品路径对内存 `ApprovalStore` 的依赖。兼容层目前只能在取得 fenced Action claim
-后执行，并写入 Receipt；V2-004 再把这一执行职责迁移到 Worker Host。
+后执行，并写入 Receipt；V2-004 已为 Source-to-Artifact 主路径提供 Worker Host，但兼容层的
+computer gateway 仍需在后续切片中迁移到该宿主。
 
 ### P0-2：Runtime 原语没有执行宿主
 
@@ -571,9 +572,9 @@ flowchart TB
 
 | PR | 目标 | 验收 |
 | --- | --- | --- |
-| V2-004 | Worker Host + Executor Protocol | 至少一个 source-to-artifact workflow 可从 queue 自动完成 |
-| V2-005 | Step + Verifier | 每个模型/工具/验证操作有状态、Artifact 与 causal trace |
-| V2-006 | 原子 `finalize_run` | scheduler、Run、Thread、Delivery、Attention 和 outbox 无分裂终态 |
+| V2-004 ✅ | Worker Host + Executor Protocol | 至少一个 source-to-artifact workflow 可从 queue 自动完成 |
+| V2-005 ✅ | Step + Verifier | 每个模型/工具/验证操作有状态、Artifact 与 causal trace |
+| V2-006 ✅ | 原子 `finalize_run` | scheduler、Run、Thread、Delivery、Attention 和 outbox 无分裂终态 |
 | V2-007 | Delivery decision | accept/revise/reject/defer/takeover 可持久、可 replay；revise 创建新 Run |
 
 首个 workflow 已收敛为“一个明确选择的飞书来源 → 可检查的项目决策记录”。V2-005 对应的
@@ -697,5 +698,5 @@ V2 只有同时满足产品闭环和 Runtime 闭环才算完成。
 7. Self-loop 在 V2 只打开 ReviewCase 和 remediation proposal；
 8. 自动晋升与 L3 自治继续保持关闭，直到 Pilot 与独立评估门通过。
 
-工程实施已完成 `V2-001` → `V2-003` 的分支级验收，下一切片是 `V2-004`；这七个切片完成后，
-CoPenguin 才第一次拥有一个真实、持久、可验收的产品闭环。
+工程实施已在收敛分支完成 `V2-001` → `V2-006` 的测试级验收，下一切片是 `V2-007`；
+在 Delivery 的接受、修改、拒绝、延后和接管决定完成前，CoPenguin 仍不能声称完整产品闭环。

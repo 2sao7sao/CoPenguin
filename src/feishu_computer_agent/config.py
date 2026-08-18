@@ -45,6 +45,9 @@ class Settings:
         default_factory=lambda: frozenset({"pwd", "ls", "date", "whoami"})
     )
     local_shell_timeout_seconds: int = 20
+    macos_shortcuts_enabled: bool = False
+    macos_shortcuts_allowlist: frozenset[str] = field(default_factory=frozenset)
+    macos_shortcuts_timeout_seconds: int = 60
 
     worker_concurrency: int = 1
     worker_lease_seconds: int = 30
@@ -90,6 +93,9 @@ class Settings:
             local_shell_allowlist=_csv_set(env.get("LOCAL_SHELL_ALLOWLIST"))
             or frozenset({"pwd", "ls", "date", "whoami"}),
             local_shell_timeout_seconds=int(env.get("LOCAL_SHELL_TIMEOUT_SECONDS", "20")),
+            macos_shortcuts_enabled=_bool(env.get("MACOS_SHORTCUTS_ENABLED"), False),
+            macos_shortcuts_allowlist=_csv_set(env.get("MACOS_SHORTCUTS_ALLOWLIST")),
+            macos_shortcuts_timeout_seconds=int(env.get("MACOS_SHORTCUTS_TIMEOUT_SECONDS", "60")),
             worker_concurrency=int(env.get("COPENGUIN_WORKER_CONCURRENCY", "1")),
             worker_lease_seconds=int(env.get("COPENGUIN_WORKER_LEASE_SECONDS", "30")),
             worker_heartbeat_interval_seconds=float(

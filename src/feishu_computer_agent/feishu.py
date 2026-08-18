@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -28,12 +29,25 @@ class FeishuChallenge:
 class OutboundMessenger(Protocol):
     async def send_text(self, *, chat_id: str, text: str) -> None: ...
 
+    async def send_approval_card(
+        self,
+        *,
+        chat_id: str,
+        text: str,
+        approval_id: str,
+    ) -> None: ...
+
 
 class FeishuEventParser:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
 
-    def parse(self, payload: dict[str, Any]) -> InboundMessage | FeishuChallenge | None:
+    def parse(
+        self,
+        payload: dict[str, Any],
+        *,
+        trusted_long_connection: bool = False,
+    ) -> InboundMessage | FeishuChallenge | None:
         if "encrypt" in payload:
             raise FeishuPayloadError(
                 "Encrypted Feishu callbacks are not enabled in this MVP. "
@@ -49,7 +63,8 @@ class FeishuEventParser:
         header = payload.get("header") or {}
         if not isinstance(header, dict):
             raise FeishuPayloadError("Invalid Feishu event header.")
-        self._verify_token(header.get("token"))
+        if not trusted_long_connection:
+            self._verify_token(header.get("token"))
         event_type = header.get("event_type")
         if event_type != "im.message.receive_v1":
             return None
@@ -61,7 +76,9 @@ class FeishuEventParser:
 
     def _verify_token(self, token: Any) -> None:
         expected = self._settings.feishu_verification_token
-        if expected and token != expected:
+        if not expected:
+            raise FeishuPayloadError("FEISHU_VERIFICATION_TOKEN is required for webhook callbacks.")
+        if token != expected:
             raise FeishuPayloadError("Feishu verification token mismatch.")
 
     def _parse_message_event(
@@ -166,6 +183,70 @@ class FeishuEventParser:
         return datetime.fromtimestamp(timestamp, tz=UTC)
 
 
+class FeishuCardActionParser:
+    """Turn one signed Feishu approval-card action into a normal control message."""
+
+    _APPROVAL_ID = re.compile(r"^[A-Za-z0-9_-]+$")
+
+    def __init__(self, settings: Settings) -> None:
+        self._settings = settings
+        self._message_parser = FeishuEventParser(settings)
+
+    def parse(
+        self,
+        payload: dict[str, Any],
+        *,
+        trusted_long_connection: bool = False,
+    ) -> InboundMessage:
+        header = payload.get("header") or {}
+        event = payload.get("event") or {}
+        if not isinstance(header, dict) or not isinstance(event, dict):
+            raise FeishuPayloadError("Malformed Feishu card callback.")
+        expected_token = self._settings.feishu_verification_token
+        received_token = event.get("token") or header.get("token")
+        if not trusted_long_connection:
+            if not expected_token:
+                raise FeishuPayloadError(
+                    "FEISHU_VERIFICATION_TOKEN is required for webhook callbacks."
+                )
+            if received_token != expected_token:
+                raise FeishuPayloadError("Feishu card verification token mismatch.")
+        operator = event.get("operator") or {}
+        action = event.get("action") or {}
+        context = event.get("context") or {}
+        if not isinstance(operator, dict) or not isinstance(action, dict):
+            raise FeishuPayloadError("Malformed Feishu card action.")
+        if not isinstance(context, dict):
+            raise FeishuPayloadError("Malformed Feishu card context.")
+        value = action.get("value") or {}
+        if not isinstance(value, dict) or value.get("schema") != "copenguin.approval.v1":
+            raise FeishuPayloadError("Unsupported Feishu card action schema.")
+        decision = str(value.get("decision") or "").lower()
+        if decision not in {"approve", "deny"}:
+            raise FeishuPayloadError("Card decision must be approve or deny.")
+        approval_id = str(value.get("approval_id") or "")
+        if not self._APPROVAL_ID.fullmatch(approval_id):
+            raise FeishuPayloadError("Card approval id is invalid.")
+        open_id = str(operator.get("open_id") or "")
+        chat_id = str(context.get("open_chat_id") or "")
+        event_id = str(header.get("event_id") or "")
+        open_message_id = str(context.get("open_message_id") or "")
+        message_id = event_id or (f"card-{open_message_id}-{approval_id}-{decision}-{open_id}")
+        if not open_id or not chat_id or not message_id:
+            raise FeishuPayloadError("Card callback identity and chat context are required.")
+        return InboundMessage(
+            platform="feishu",
+            message_id=message_id,
+            chat_id=chat_id,
+            chat_type=ChatType.DIRECT,
+            sender_open_id=open_id,
+            sender_union_id=operator.get("union_id"),
+            text=f"/{decision} {approval_id}",
+            raw=payload,
+            created_at=self._message_parser._parse_create_time(header.get("create_time")),
+        )
+
+
 class FeishuMessenger:
     def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None) -> None:
         self._settings = settings
@@ -174,20 +255,93 @@ class FeishuMessenger:
         self._tenant_token_expire_at = 0.0
 
     async def send_text(self, *, chat_id: str, text: str) -> None:
+        await self._send_message(
+            chat_id=chat_id,
+            msg_type="text",
+            content={"text": text[:4000]},
+        )
+
+    async def send_approval_card(
+        self,
+        *,
+        chat_id: str,
+        text: str,
+        approval_id: str,
+    ) -> None:
+        await self._send_message(
+            chat_id=chat_id,
+            msg_type="interactive",
+            content=self.approval_card(text=text, approval_id=approval_id),
+        )
+
+    def approval_card(self, *, text: str, approval_id: str) -> dict[str, Any]:
+        return {
+            "config": {"wide_screen_mode": True},
+            "header": {
+                "template": "orange",
+                "title": {"tag": "plain_text", "content": "CoPenguin action approval"},
+            },
+            "elements": [
+                {"tag": "markdown", "content": text[:3000]},
+                {
+                    "tag": "action",
+                    "actions": [
+                        {
+                            "tag": "button",
+                            "text": {"tag": "plain_text", "content": "Approve"},
+                            "type": "primary",
+                            "value": {
+                                "schema": "copenguin.approval.v1",
+                                "decision": "approve",
+                                "approval_id": approval_id,
+                            },
+                            "confirm": {
+                                "title": {"tag": "plain_text", "content": "Approve action?"},
+                                "text": {
+                                    "tag": "plain_text",
+                                    "content": "CoPenguin will execute the exact bound action.",
+                                },
+                            },
+                        },
+                        {
+                            "tag": "button",
+                            "text": {"tag": "plain_text", "content": "Deny"},
+                            "type": "danger",
+                            "value": {
+                                "schema": "copenguin.approval.v1",
+                                "decision": "deny",
+                                "approval_id": approval_id,
+                            },
+                        },
+                    ],
+                },
+            ],
+        }
+
+    async def _send_message(
+        self,
+        *,
+        chat_id: str,
+        msg_type: str,
+        content: dict[str, Any],
+    ) -> None:
         if not self._settings.feishu_app_id or not self._settings.feishu_app_secret:
             return
         token = await self._tenant_access_token()
-        content = json.dumps({"text": text[:4000]}, ensure_ascii=False)
         response = await self._client.post(
             "https://open.feishu.cn/open-apis/im/v1/messages",
             params={"receive_id_type": "chat_id"},
             headers={"Authorization": f"Bearer {token}"},
-            json={"receive_id": chat_id, "msg_type": "text", "content": content},
+            json={
+                "receive_id": chat_id,
+                "msg_type": msg_type,
+                "content": json.dumps(content, ensure_ascii=False),
+            },
         )
         response.raise_for_status()
         body = response.json()
         if body.get("code") not in (0, None):
-            raise RuntimeError(f"Feishu send_text failed: {body}")
+            raise RuntimeError(f"Feishu send message failed: {body}")
 
     async def _tenant_access_token(self) -> str:
         now = time.time()
@@ -204,9 +358,12 @@ class FeishuMessenger:
         body = response.json()
         if body.get("code") != 0:
             raise RuntimeError(f"Feishu tenant_access_token failed: {body}")
-        self._tenant_token = body["tenant_access_token"]
+        token = body.get("tenant_access_token")
+        if not isinstance(token, str) or not token:
+            raise RuntimeError("Feishu tenant_access_token response did not include a token")
+        self._tenant_token = token
         self._tenant_token_expire_at = now + max(60, int(body.get("expire", 7200)) - 120)
-        return self._tenant_token
+        return token
 
 
 class FeishuWebhookService:
@@ -218,15 +375,25 @@ class FeishuWebhookService:
         agent: PrivateAssistantAgent,
         ingress: IngressAdapter,
         messenger: OutboundMessenger,
+        card_parser: FeishuCardActionParser | None = None,
     ) -> None:
         self._parser = parser
         self._access = access
         self._agent = agent
         self._ingress = ingress
         self._messenger = messenger
+        self._card_parser = card_parser
 
-    async def handle_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
-        parsed = self._parser.parse(payload)
+    async def handle_payload(
+        self,
+        payload: dict[str, Any],
+        *,
+        trusted_long_connection: bool = False,
+    ) -> dict[str, Any]:
+        parsed = self._parser.parse(
+            payload,
+            trusted_long_connection=trusted_long_connection,
+        )
         if isinstance(parsed, FeishuChallenge):
             return {"challenge": parsed.challenge}
         if parsed is None:
@@ -253,7 +420,14 @@ class FeishuWebhookService:
             }
         reply = await self._agent.handle(parsed, inbox_record=ingress.record)
         if reply.text:
-            await self._messenger.send_text(chat_id=parsed.chat_id, text=reply.text)
+            if reply.requires_approval and reply.approval_id:
+                await self._messenger.send_approval_card(
+                    chat_id=parsed.chat_id,
+                    text=reply.text,
+                    approval_id=reply.approval_id,
+                )
+            else:
+                await self._messenger.send_text(chat_id=parsed.chat_id, text=reply.text)
         return {
             "ok": True,
             "duplicate": False,
@@ -264,3 +438,34 @@ class FeishuWebhookService:
             "intent": reply.intent.value,
             "requires_approval": reply.requires_approval,
         }
+
+    async def handle_card_action(
+        self,
+        payload: dict[str, Any],
+        *,
+        trusted_long_connection: bool = False,
+    ) -> dict[str, Any]:
+        if self._card_parser is None:
+            raise FeishuPayloadError("Feishu card actions are not configured.")
+        parsed = self._card_parser.parse(
+            payload,
+            trusted_long_connection=trusted_long_connection,
+        )
+        if not self._access.is_allowed(parsed):
+            return {"toast": {"type": "error", "content": "This actor cannot decide the action."}}
+        ingress = self._ingress.receive(
+            message_id=parsed.message_id,
+            chat_id=parsed.chat_id,
+            actor_id=parsed.actor_id,
+            text=parsed.text,
+            created_at=parsed.created_at.astimezone(UTC)
+            .isoformat(timespec="microseconds")
+            .replace("+00:00", "Z"),
+        )
+        if ingress.duplicate:
+            return {"toast": {"type": "info", "content": "Decision already recorded."}}
+        reply = await self._agent.handle(parsed, inbox_record=ingress.record)
+        if reply.text:
+            await self._messenger.send_text(chat_id=parsed.chat_id, text=reply.text)
+        toast_type = "success" if reply.observation is not None else "info"
+        return {"toast": {"type": toast_type, "content": reply.text[:120]}}

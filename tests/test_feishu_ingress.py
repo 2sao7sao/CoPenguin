@@ -40,6 +40,32 @@ def _payload(
     }
 
 
+def _card_payload(*, approval_id: str, decision: str = "approve") -> dict[str, object]:
+    return {
+        "schema": "2.0",
+        "header": {
+            "event_id": f"card-{decision}-{approval_id}",
+            "event_type": "card.action.trigger",
+            "create_time": "1786608000000",
+        },
+        "event": {
+            "token": "token",
+            "operator": {"open_id": "ou_owner"},
+            "context": {
+                "open_chat_id": "oc_owner",
+                "open_message_id": "om_approval_card",
+            },
+            "action": {
+                "value": {
+                    "schema": "copenguin.approval.v1",
+                    "decision": decision,
+                    "approval_id": approval_id,
+                }
+            },
+        },
+    }
+
+
 def test_feishu_retry_after_restart_keeps_one_route_and_one_task(tmp_path) -> None:
     settings = Settings(
         data_dir=tmp_path,
@@ -114,6 +140,46 @@ def test_feishu_computer_approval_uses_durable_runtime_after_restart(tmp_path) -
     detail = restarted_client.get(f"/runtime/actions/{intent.intent_id}")
     assert detail.status_code == 200
     assert detail.json()["receipts"][0]["outcome"] == "succeeded"
+
+
+def test_feishu_approval_card_uses_same_durable_decision_path(tmp_path) -> None:
+    settings = Settings(
+        data_dir=tmp_path,
+        memory_enabled=False,
+        knowledge_enabled=False,
+        feishu_verification_token="token",
+        feishu_allowed_open_ids=frozenset({"ou_owner"}),
+    )
+    app = create_app(settings)
+    client = TestClient(app)
+    queued = client.post(
+        "/feishu/events",
+        json=_payload(
+            text="/computer open browser",
+            message_id="om_card_computer",
+            event_id="event-card-computer",
+        ),
+    )
+    approval = app.state.runtime.list_approvals(status=ApprovalState.PENDING)[0]
+
+    decided = client.post(
+        "/feishu/events",
+        json=_card_payload(approval_id=approval.approval_id),
+    )
+    duplicate = client.post(
+        "/feishu/events",
+        json=_card_payload(approval_id=approval.approval_id),
+    )
+
+    assert queued.status_code == 200
+    assert decided.status_code == 200
+    assert decided.json()["toast"]["type"] == "success"
+    assert duplicate.json()["toast"]["content"] == "Decision already recorded."
+    assert app.state.runtime.get_approval(approval.approval_id).status == ApprovalState.APPROVED
+    intent = app.state.runtime.get_action_intent(approval.intent_id)
+    assert intent.status == ActionStatus.SUCCEEDED
+    receipts = app.state.runtime.list_action_receipts(intent_id=intent.intent_id)
+    assert len(receipts) == 1
 
 
 def test_feishu_ambiguous_continuation_waits_for_durable_route_command(tmp_path) -> None:

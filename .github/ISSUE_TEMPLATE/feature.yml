@@ -1,0 +1,37 @@
+name: Feature proposal
+description: Propose a bounded product or runtime improvement.
+title: "[Proposal]: "
+labels: ["proposal", "triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: User problem
+      description: Describe the real workflow and current workaround, not only a solution.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome and acceptance criteria
+    validations:
+      required: true
+  - type: textarea
+    id: boundary
+    attributes:
+      label: Trust boundary
+      description: What data, permissions, providers, or irreversible actions are involved?
+    validations:
+      required: true
+  - type: textarea
+    id: failures
+    attributes:
+      label: Failure and recovery cases
+      description: Include interruption, duplicate delivery, stale state, denial, and rollback where relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Interviews, traces, repeated use, or another reason to prioritize this work.

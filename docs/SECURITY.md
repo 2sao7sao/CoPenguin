@@ -5,11 +5,15 @@ This project treats Feishu messages as untrusted remote input.
 ## Defaults
 
 - Feishu senders are denied unless allowlisted.
+- Webhook callbacks fail closed unless `FEISHU_VERIFICATION_TOKEN` is configured;
+  the authenticated official-SDK long connection is the only token-bypass path.
 - Group messages require a mention by default.
 - All computer tasks require approval by default.
 - The default computer provider is `dry-run`.
 - The shell provider is disabled unless `LOCAL_SHELL_ENABLED=1`.
 - The shell provider only runs executables listed in `LOCAL_SHELL_ALLOWLIST`.
+- The macOS Shortcuts provider is disabled unless `MACOS_SHORTCUTS_ENABLED=1`
+  and only runs an exact name in `MACOS_SHORTCUTS_ALLOWLIST`.
 - The local Inbox write endpoint accepts loopback clients only; remote channel
   input must pass its channel authentication boundary first.
 - A proposed Inbox route can be resolved only by the original channel actor;
@@ -68,10 +72,11 @@ reconciliation policy.
 
 ## Production Gaps
 
-Before real computer control:
+Before broad vision-driven computer control:
 
-- add Feishu interactive-card approvals with callback validation;
-- add per-task timeout and cancellation;
+- complete a credential-backed smoke test for Feishu long connection and
+  interactive-card callbacks;
+- enforce wall-clock and cost budgets for every future model/tool Step kind;
 - add screenshot/DOM redaction policy;
 - separate read-only, reversible, and irreversible tools;
 - require stronger confirmation for `critical` tasks;

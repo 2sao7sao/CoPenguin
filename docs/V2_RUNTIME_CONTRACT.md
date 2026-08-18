@@ -1,6 +1,6 @@
 # CoPenguin V2 Runtime Contract
 
-Status: implementation active; V2-001 through V2-003 branch acceptance passed, V2-004 next
+Status: implementation active; V2-001 through V2-006 have test-backed Alpha slices, V2-007 next
 
 Accepted product theme: Trusted Closure
 
