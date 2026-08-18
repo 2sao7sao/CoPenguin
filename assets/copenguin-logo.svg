@@ -1,14 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
   <title id="title">CoPenguin mascot</title>
-  <desc id="desc">An original chibi character wearing a full penguin costume.</desc>
+  <desc id="desc">An original chibi character gliding forward in a full penguin costume.</desc>
 
-  <path d="M180 150c25 7 39 19 46 37-19 0-38-4-53-13l7-24Z" fill="#565762" stroke="#1b1922" stroke-width="4" stroke-linejoin="round"/>
-  <ellipse cx="94" cy="222" rx="31" ry="14" transform="rotate(-9 94 222)" fill="#f5b82e" stroke="#1b1922" stroke-width="4"/>
-  <ellipse cx="162" cy="222" rx="31" ry="14" transform="rotate(9 162 222)" fill="#f5b82e" stroke="#1b1922" stroke-width="4"/>
-  <path d="M78 125C48 130 27 145 22 163c-4 13 8 23 22 19 17-5 31-14 45-28l-11-29Z" fill="#565762" stroke="#1b1922" stroke-width="4" stroke-linejoin="round"/>
-  <path d="M178 125c30 5 51 20 56 38 4 13-8 23-22 19-17-5-31-14-45-28l11-29Z" fill="#565762" stroke="#1b1922" stroke-width="4" stroke-linejoin="round"/>
-  <ellipse cx="128" cy="160" rx="62" ry="72" fill="#565762" stroke="#1b1922" stroke-width="4"/>
-  <ellipse cx="128" cy="170" rx="41" ry="51" fill="#fffaf6"/>
+  <path d="M177 142c30-3 52 5 65 19-18 12-42 14-65 8v-27Z" fill="#565762" stroke="#1b1922" stroke-width="4" stroke-linejoin="round"/>
+  <ellipse cx="102" cy="226" rx="32" ry="14" transform="rotate(-8 102 226)" fill="#f5b82e" stroke="#1b1922" stroke-width="4"/>
+  <ellipse cx="179" cy="202" rx="25" ry="11" transform="rotate(-28 179 202)" fill="#f5b82e" stroke="#1b1922" stroke-width="4"/>
+  <path d="M78 131C49 135 28 150 22 169c-4 13 8 22 22 18 18-6 33-17 47-32l-13-24Z" fill="#565762" stroke="#1b1922" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M177 118c29-7 51 0 63 17 8 11 0 23-15 22-19-1-37-8-55-19l7-20Z" fill="#565762" stroke="#1b1922" stroke-width="4" stroke-linejoin="round"/>
+  <ellipse cx="128" cy="160" rx="62" ry="72" transform="rotate(-5 128 160)" fill="#565762" stroke="#1b1922" stroke-width="4"/>
+  <ellipse cx="124" cy="169" rx="41" ry="51" transform="rotate(-5 124 169)" fill="#fffaf6"/>
 
   <ellipse cx="128" cy="78" rx="75" ry="66" fill="#565762" stroke="#1b1922" stroke-width="4"/>
   <ellipse cx="128" cy="89" rx="51" ry="45" fill="#ffd9ca" stroke="#1b1922" stroke-width="3"/>
@@ -31,5 +31,5 @@
   <circle cx="101" cy="35" r="4" fill="#1b1922"/>
   <circle cx="155" cy="35" r="4" fill="#1b1922"/>
   <path d="M108 48c12-10 28-10 40 0l-20 16-20-16Z" fill="#f5b82e" stroke="#1b1922" stroke-width="4" stroke-linejoin="round"/>
-  <path d="M74 211c11 5 25 8 42 9M140 220c17-1 31-4 42-9" fill="none" stroke="#1b1922" stroke-width="4" stroke-linecap="round"/>
+  <path d="M79 214c11 5 24 7 39 7M154 203c12 0 23-3 32-8" fill="none" stroke="#1b1922" stroke-width="4" stroke-linecap="round"/>
 </svg>

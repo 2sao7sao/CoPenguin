@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/copenguin-logo.png" alt="CoPenguin chibi penguin-suit mascot" width="176" />
+  <img src="assets/copenguin-logo.png" alt="CoPenguin chibi penguin-suit mascot gliding forward" width="176" />
 </p>
 
 <h1 align="center">CoPenguin</h1>
@@ -267,7 +267,9 @@ See [Security](docs/SECURITY.md) and [Feishu setup](docs/FEISHU_SETUP.md).
 
 The primary mascot is an original chibi character in a penguin kigurumi: round
 penguin hood, visible human face, wing sleeves, white belly, and yellow beak and
-feet. The mascot follows the user-supplied visual reference without retaining its
+feet. Its forward lean, planted leading foot, lifted trailing foot, and offset
+wings make the movement readable without scenery or speed lines. The mascot
+follows the user-supplied visual reference without retaining its
 background, watermark, character identity, or distinctive accessories. The README
 banner keeps CoPenguin related to the
 [EvolveKB](https://github.com/2sao7sao/EvolveKB) brand family.

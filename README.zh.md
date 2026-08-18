@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/copenguin-logo.png" alt="CoPenguin 企鹅连体服 Q 版吉祥物" width="176" />
+  <img src="assets/copenguin-logo.png" alt="CoPenguin 向前滑行的企鹅连体服 Q 版吉祥物" width="176" />
 </p>
 
 <h1 align="center">CoPenguin</h1>
@@ -253,7 +253,8 @@ assets/                       可复用的 CoPenguin Logo 与 README Banner
 ## 品牌素材
 
 主要吉祥物是一个原创的“人物穿企鹅连体服”Q 版角色：圆形企鹅帽、外露人脸、短翼袖、
-白肚皮以及黄色喙和脚。它遵循用户提供参考图的明确方向，但不保留原图背景、水印、
+白肚皮以及黄色喙和脚。身体前倾、前脚承重、后脚抬起、双翼错开的姿态，让动作无需背景
+或速度线也能读成向前滑行。它遵循用户提供参考图的明确方向，但不保留原图背景、水印、
 人物身份或标志性配饰；README Banner 则继续与
 [EvolveKB](https://github.com/2sao7sao/EvolveKB) 保持同一品牌家族。
 

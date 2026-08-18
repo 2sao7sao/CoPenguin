@@ -47,6 +47,13 @@ def test_readmes_keep_repository_owned_penguin_assets() -> None:
         assert "assets/copenguin-logo.svg" in readme
         assert "assets/readme-banner.svg" in readme
 
+    english_sections = [line for line in english.splitlines() if line.startswith("## ")]
+    chinese_sections = [line for line in chinese.splitlines() if line.startswith("## ")]
+    assert "./README.zh.md" in english
+    assert "./README.md" in chinese
+    assert len(english_sections) == len(chinese_sections)
+    assert english_sections
+
     assert png_logo.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
     assert "<svg" in svg_logo.read_text(encoding="utf-8")
     assert "<svg" in banner.read_text(encoding="utf-8")

@@ -23,10 +23,12 @@ banner changes later.
 The raster mascot was generated with the built-in OpenAI image-generation path.
 The user-supplied image was a design reference, not an edit target. The
 `logo-brand` brief requested one original full-body anime chibi character in a
-penguin kigurumi, with a compact walking pose and transparent background. It
-explicitly excluded the original character identity, scenery, watermark, hair
-clip, chain, collar, skates, text, and added brand decorations. The output was
-downscaled without removing alpha and saved as `assets/copenguin-logo.png`.
+penguin kigurumi, with a compact forward-glide pose and transparent background.
+The final pose uses a planted leading foot, lifted trailing foot, forward body
+lean, offset wing sleeves, and a trailing tail to make the weight transfer legible.
+The brief explicitly excluded the original character identity, scenery, watermark,
+hair clip, chain, collar, skates, text, and added brand decorations. The output
+was downscaled without removing alpha and saved as `assets/copenguin-logo.png`.
 
 ## Refresh checklist
 
