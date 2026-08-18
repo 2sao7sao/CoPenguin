@@ -211,6 +211,7 @@ class EventEnvelope:
 class RunProjection:
     run_id: str
     branch_id: str
+    executor_key: str = "unassigned"
     state: RunState = RunState.CREATED
     revision: int = 0
     started_at: str | None = None
@@ -304,11 +305,15 @@ class SchedulerJob:
     available_at: str
     attempts: int
     max_attempts: int
+    executor_key: str = "unassigned"
     lease_owner: str | None = None
     lease_id: str | None = None
     fencing_token: int = 0
     lease_expires_at: str | None = None
     last_error: str | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass(frozen=True)
@@ -428,6 +433,7 @@ class TaskSubmission:
     metadata: Mapping[str, Any] = field(default_factory=dict)
     priority: int = 0
     max_attempts: int = 3
+    executor_key: str = "unassigned"
     task_snapshot_id: str | None = None
     agent_snapshot_id: str | None = None
     context_manifest_id: str | None = None
@@ -457,6 +463,7 @@ class ThreadUpdateSubmission:
     context_manifest_id: str | None = None
     priority: int = 0
     max_attempts: int = 3
+    executor_key: str = "unassigned"
 
 
 @dataclass(frozen=True)

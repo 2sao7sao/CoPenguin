@@ -36,6 +36,7 @@ THREAD_TRANSITIONS: dict[ThreadState, frozenset[ThreadState]] = {
     ),
     ThreadState.RUNNING: frozenset(
         {
+            ThreadState.DORMANT,
             ThreadState.QUEUED,
             ThreadState.WAITING_USER,
             ThreadState.WAITING_APPROVAL,
@@ -114,6 +115,7 @@ RUN_TRANSITIONS: dict[RunState, frozenset[RunState]] = {
     ),
     RunState.RUNNING: frozenset(
         {
+            RunState.QUEUED,
             RunState.WAITING_USER,
             RunState.WAITING_APPROVAL,
             RunState.WAITING_RECEIPT,
@@ -376,6 +378,7 @@ def reduce_thread(
         new_run = RunProjection(
             run_id=run_id,
             branch_id=str(event.branch_id or payload.get("branch_id") or "main"),
+            executor_key=str(payload.get("executor_key") or "unassigned"),
             created_at=event.occurred_at,
             created_sequence=event.sequence,
             supersedes_run_id=payload.get("supersedes_run_id"),

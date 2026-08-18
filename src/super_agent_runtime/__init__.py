@@ -6,13 +6,26 @@ from .errors import (
     ArtifactCorruption,
     ArtifactNotFound,
     ConcurrencyConflict,
+    ExecutionError,
     IdempotencyConflict,
     InvalidTransition,
     NotFound,
+    PermanentExecutionError,
     ReconciliationRequired,
     ResourceConflict,
+    RetryableExecutionError,
     RuntimeInvariantError,
     StaleLease,
+)
+from .execution import (
+    ExecutionControl,
+    ExecutionRequest,
+    ExecutionResult,
+    Executor,
+    WorkerHost,
+    WorkerHostConfig,
+    WorkerRunResult,
+    WorkerRunStatus,
 )
 from .inbox import (
     ConservativeInboxRouter,
@@ -56,6 +69,8 @@ from .models import (
 )
 from .repository import SQLiteRuntimeRepository
 from .snapshots import AgentSnapshot, ContextItem, ContextManifest, SnapshotStore, TaskSnapshot
+from .source_artifact import SourceToArtifactExecutor, SourceToArtifactLimits
+from .source_tasks import SourceSnapshotBinding, SourceTaskHandle, SourceToArtifactTaskCompiler
 
 __all__ = [
     "AccessMode",
@@ -81,6 +96,11 @@ __all__ = [
     "DesiredState",
     "EventDraft",
     "EventEnvelope",
+    "ExecutionControl",
+    "ExecutionError",
+    "ExecutionRequest",
+    "ExecutionResult",
+    "Executor",
     "IdempotencyConflict",
     "IngressAdapter",
     "IngressResult",
@@ -93,8 +113,10 @@ __all__ = [
     "InvalidTransition",
     "JobState",
     "NotFound",
+    "PermanentExecutionError",
     "ResourceConflict",
     "ReconciliationRequired",
+    "RetryableExecutionError",
     "ResourceLease",
     "ReceiptOutcome",
     "RunProjection",
@@ -105,6 +127,11 @@ __all__ = [
     "SQLiteRuntimeRepository",
     "StaleLease",
     "SnapshotStore",
+    "SourceToArtifactExecutor",
+    "SourceToArtifactLimits",
+    "SourceToArtifactTaskCompiler",
+    "SourceSnapshotBinding",
+    "SourceTaskHandle",
     "TaskSnapshot",
     "TaskSubmission",
     "TaskHandle",
@@ -115,6 +142,10 @@ __all__ = [
     "ThreadUpdateProjection",
     "ThreadUpdateSubmission",
     "WorkerClaim",
+    "WorkerHost",
+    "WorkerHostConfig",
+    "WorkerRunResult",
+    "WorkerRunStatus",
 ]
 
 __version__ = "0.1.0"

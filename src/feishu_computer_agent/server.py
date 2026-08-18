@@ -17,8 +17,11 @@ from super_agent_runtime import (
     InboxRouteType,
     IngressAdapter,
     InvalidTransition,
+    JobState,
     NotFound,
     SnapshotStore,
+    SourceToArtifactExecutor,
+    SourceToArtifactTaskCompiler,
     SQLiteRuntimeRepository,
     ThreadCoordinator,
     ThreadUpdateKind,
@@ -91,7 +94,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             agent_id="copenguin-default",
             model_profile={"computer_provider": computer.name},
             tool_registry={"computer": computer.name},
-            capability_manifest={"computer": "approval_gated"},
+            capability_manifest={
+                "computer": "approval_gated",
+                "workflows": [SourceToArtifactExecutor.key],
+            },
             created_at=datetime.now(UTC).isoformat(),
         )
     )
@@ -99,6 +105,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         repository=runtime,
         artifacts=artifacts,
         snapshots=snapshots,
+        agent_snapshot_id=default_agent_snapshot.artifact_id,
+    )
+    source_tasks = SourceToArtifactTaskCompiler(
+        repository=runtime,
+        artifacts=artifacts,
         agent_snapshot_id=default_agent_snapshot.artifact_id,
     )
     feishu_ingress = IngressAdapter(
@@ -136,6 +147,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.snapshots = snapshots
     app.state.threads = threads
     app.state.inbox = inbox
+    app.state.source_tasks = source_tasks
     app.state.feishu_ingress = feishu_ingress
     app.state.local_ingress = local_ingress
     app.state.default_agent_snapshot = default_agent_snapshot
@@ -169,6 +181,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "projection_hash": thread.projection_hash,
             "replay_verified": runtime.verify_thread_replay(thread_id),
         }
+
+    @app.get("/runtime/jobs")
+    async def runtime_jobs(
+        state: JobState | None = None,
+        executor_key: str | None = None,
+        limit: int = 100,
+    ) -> dict[str, object]:
+        safe_limit = max(1, min(limit, 500))
+        jobs = runtime.list_jobs(
+            state=state,
+            executor_key=executor_key,
+            limit=safe_limit,
+        )
+        return {"jobs": [job.as_dict() for job in jobs]}
+
+    @app.get("/runtime/jobs/{run_id}")
+    async def runtime_job(run_id: str) -> dict[str, object]:
+        try:
+            job = runtime.get_job(run_id)
+        except NotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return {"job": job.as_dict()}
 
     @app.get("/runtime/actions")
     async def runtime_actions(

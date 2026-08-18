@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
@@ -44,7 +45,10 @@ class ThreadCoordinator:
         run_id: str | None = None,
         correlation_id: str | None = None,
         metadata: dict[str, Any] | None = None,
+        actor: str = "inbox-router",
         priority: int = 0,
+        max_attempts: int = 3,
+        executor_key: str = "unassigned",
         task_snapshot_id: str | None = None,
         agent_snapshot_id: str | None = None,
         context_manifest_id: str | None = None,
@@ -59,7 +63,10 @@ class ThreadCoordinator:
             run_id=run_id,
             correlation_id=correlation_id,
             metadata=metadata,
+            actor=actor,
             priority=priority,
+            max_attempts=max_attempts,
+            executor_key=executor_key,
             task_snapshot_id=task_snapshot_id,
             agent_snapshot_id=agent_snapshot_id,
             context_manifest_id=context_manifest_id,
@@ -71,10 +78,17 @@ class ThreadCoordinator:
             correlation_id=correlation_id,
         )
 
-    def claim_next(self, *, worker_id: str, lease_seconds: int = 30) -> ActiveRun | None:
+    def claim_next(
+        self,
+        *,
+        worker_id: str,
+        lease_seconds: int = 30,
+        executor_keys: Iterable[str] | None = None,
+    ) -> ActiveRun | None:
         claim = self.repository.claim_next_run(
             worker_id=worker_id,
             lease_seconds=lease_seconds,
+            executor_keys=executor_keys,
         )
         if claim is None:
             return None

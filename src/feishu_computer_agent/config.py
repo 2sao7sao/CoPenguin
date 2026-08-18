@@ -46,6 +46,11 @@ class Settings:
     )
     local_shell_timeout_seconds: int = 20
 
+    worker_concurrency: int = 1
+    worker_lease_seconds: int = 30
+    worker_heartbeat_interval_seconds: float = 5.0
+    worker_retry_delay_seconds: int = 1
+
     memory_enabled: bool = True
     knowledge_enabled: bool = True
     kb_root: Path = Path("kb")
@@ -85,6 +90,12 @@ class Settings:
             local_shell_allowlist=_csv_set(env.get("LOCAL_SHELL_ALLOWLIST"))
             or frozenset({"pwd", "ls", "date", "whoami"}),
             local_shell_timeout_seconds=int(env.get("LOCAL_SHELL_TIMEOUT_SECONDS", "20")),
+            worker_concurrency=int(env.get("COPENGUIN_WORKER_CONCURRENCY", "1")),
+            worker_lease_seconds=int(env.get("COPENGUIN_WORKER_LEASE_SECONDS", "30")),
+            worker_heartbeat_interval_seconds=float(
+                env.get("COPENGUIN_WORKER_HEARTBEAT_SECONDS", "5")
+            ),
+            worker_retry_delay_seconds=int(env.get("COPENGUIN_WORKER_RETRY_DELAY_SECONDS", "1")),
             memory_enabled=_bool(env.get("MEMORY_ENABLED"), True),
             knowledge_enabled=_bool(env.get("KNOWLEDGE_ENABLED"), True),
             kb_root=Path(env.get("KB_ROOT", "kb")).expanduser(),

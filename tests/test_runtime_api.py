@@ -24,6 +24,28 @@ def test_runtime_sidebar_and_detail_endpoints(tmp_path) -> None:
     assert detail.json()["replay_verified"] is True
 
 
+def test_runtime_scheduler_job_endpoint_exposes_executor_routing(tmp_path) -> None:
+    app = create_app(Settings(data_dir=tmp_path, memory_enabled=False, knowledge_enabled=False))
+    runtime = app.state.runtime
+    thread = runtime.create_thread(thread_id="thread-job", project_id="work", title="Worker job")
+    thread = runtime.create_run(
+        thread.thread_id,
+        run_id="run-job",
+        executor_key="fixture-executor",
+        expected_revision=thread.revision,
+    )
+    runtime.enqueue_run(thread_id=thread.thread_id, run_id="run-job")
+    client = TestClient(app)
+
+    listing = client.get("/runtime/jobs", params={"executor_key": "fixture-executor"})
+    detail = client.get("/runtime/jobs/run-job")
+
+    assert listing.status_code == 200
+    assert listing.json()["jobs"][0]["executor_key"] == "fixture-executor"
+    assert detail.status_code == 200
+    assert detail.json()["job"]["state"] == "queued"
+
+
 def test_runtime_detail_returns_not_found(tmp_path) -> None:
     app = create_app(Settings(data_dir=tmp_path, memory_enabled=False, knowledge_enabled=False))
     client = TestClient(app)

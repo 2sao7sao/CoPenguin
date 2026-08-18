@@ -19,7 +19,8 @@ class TaskSnapshot:
     input_artifact_ids: tuple[str, ...] = ()
     sensitivity: str = "normal"
     created_at: str = ""
-    schema_version: int = 1
+    schema_version: int = 2
+    workflow_id: str = "unassigned"
 
 
 @dataclass(frozen=True)

@@ -626,6 +626,10 @@ class InboxCoordinator:
             if basis is not None and basis.agent_snapshot_id is not None
             else self.agent_snapshot_id
         )
+        executor_key = str(
+            (base_task or {}).get("workflow_id")
+            or (basis.executor_key if basis is not None else "unassigned")
+        )
 
         objective = str(base_task.get("objective") if base_task else thread.title)
         acceptance_criteria = tuple(
@@ -658,7 +662,8 @@ class InboxCoordinator:
                     ),
                     sensitivity=str((base_task or {}).get("sensitivity") or "normal"),
                     created_at=occurred_at,
-                    schema_version=int((base_task or {}).get("schema_version", 1)),
+                    schema_version=max(2, int((base_task or {}).get("schema_version", 1))),
+                    workflow_id=executor_key,
                 )
             )
             task_snapshot_id = task_snapshot.artifact_id
@@ -734,6 +739,7 @@ class InboxCoordinator:
             task_snapshot_id=task_snapshot_id,
             agent_snapshot_id=agent_snapshot_id,
             context_manifest_id=context_manifest.artifact_id,
+            executor_key=executor_key,
         )
 
     def _message_text(self, record: InboxRecord) -> str:

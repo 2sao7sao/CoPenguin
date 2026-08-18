@@ -147,6 +147,7 @@ class SQLiteRuntimeRepository:
                 CREATE TABLE IF NOT EXISTS scheduler_jobs (
                     run_id TEXT PRIMARY KEY,
                     thread_id TEXT NOT NULL,
+                    executor_key TEXT NOT NULL DEFAULT 'unassigned',
                     state TEXT NOT NULL,
                     priority INTEGER NOT NULL DEFAULT 0,
                     available_at TEXT NOT NULL,
@@ -165,7 +166,6 @@ class SQLiteRuntimeRepository:
                     ON scheduler_jobs(state, available_at, priority DESC);
                 CREATE INDEX IF NOT EXISTS idx_scheduler_thread
                     ON scheduler_jobs(thread_id, state);
-
                 CREATE TABLE IF NOT EXISTS resource_fences (
                     resource_key TEXT PRIMARY KEY,
                     last_token INTEGER NOT NULL
@@ -286,6 +286,19 @@ class SQLiteRuntimeRepository:
                     "ALTER TABLE action_intents "
                     "ADD COLUMN requires_approval INTEGER NOT NULL DEFAULT 0"
                 )
+            scheduler_columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(scheduler_jobs)").fetchall()
+            }
+            if "executor_key" not in scheduler_columns:
+                connection.execute(
+                    "ALTER TABLE scheduler_jobs "
+                    "ADD COLUMN executor_key TEXT NOT NULL DEFAULT 'unassigned'"
+                )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_scheduler_executor "
+                "ON scheduler_jobs(executor_key, state, available_at, priority DESC)"
+            )
             inbox_columns = {
                 str(row["name"])
                 for row in connection.execute("PRAGMA table_info(inbox_messages)").fetchall()
@@ -358,6 +371,10 @@ class SQLiteRuntimeRepository:
                 "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
                 (6, to_timestamp(self._clock())),
             )
+            connection.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                (7, to_timestamp(self._clock())),
+            )
 
     # ------------------------------------------------------------------
     # Thread event journal and deterministic projection
@@ -409,6 +426,7 @@ class SQLiteRuntimeRepository:
         metadata: dict[str, Any] | None = None,
         priority: int = 0,
         max_attempts: int = 3,
+        executor_key: str = "unassigned",
         task_snapshot_id: str | None = None,
         agent_snapshot_id: str | None = None,
         context_manifest_id: str | None = None,
@@ -425,6 +443,7 @@ class SQLiteRuntimeRepository:
             metadata=metadata or {},
             priority=priority,
             max_attempts=max_attempts,
+            executor_key=executor_key,
             task_snapshot_id=task_snapshot_id,
             agent_snapshot_id=agent_snapshot_id,
             context_manifest_id=context_manifest_id,
@@ -450,14 +469,34 @@ class SQLiteRuntimeRepository:
         )
         if any(snapshot_ids) and not all(snapshot_ids):
             raise ValueError("task, agent, and context snapshot ids must be provided together")
+        if submission.max_attempts < 1:
+            raise ValueError("max_attempts must be at least 1")
+        if not submission.executor_key.strip():
+            raise ValueError("executor_key is required")
 
         existing = self._get_thread_in_transaction(connection, submission.thread_id)
         if existing is not None:
             run = existing.run(submission.run_id)
+            snapshots_match = not any(snapshot_ids) or (
+                run is not None
+                and (
+                    run.task_snapshot_id,
+                    run.agent_snapshot_id,
+                    run.context_manifest_id,
+                )
+                == snapshot_ids
+            )
+            executor_matches = (
+                submission.executor_key == "unassigned"
+                or run is not None
+                and run.executor_key == submission.executor_key
+            )
             if (
                 existing.project_id == submission.project_id
                 and existing.title == submission.title
                 and run is not None
+                and snapshots_match
+                and executor_matches
             ):
                 return existing
             raise IdempotencyConflict(
@@ -493,7 +532,11 @@ class SQLiteRuntimeRepository:
                 event_type="run.created",
                 actor=submission.actor,
                 occurred_at=now,
-                payload={"run_id": submission.run_id, "branch_id": submission.branch_id},
+                payload={
+                    "run_id": submission.run_id,
+                    "branch_id": submission.branch_id,
+                    "executor_key": submission.executor_key,
+                },
             ),
         ]
         if all(snapshot_ids):
@@ -563,13 +606,14 @@ class SQLiteRuntimeRepository:
         connection.execute(
             """
             INSERT INTO scheduler_jobs(
-                run_id, thread_id, state, priority, available_at, attempts,
+                run_id, thread_id, executor_key, state, priority, available_at, attempts,
                 max_attempts, fencing_token, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, 0, ?, 0, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, 0, ?, ?)
             """,
             (
                 submission.run_id,
                 submission.thread_id,
+                submission.executor_key,
                 JobState.QUEUED.value,
                 submission.priority,
                 now,
@@ -595,6 +639,7 @@ class SQLiteRuntimeRepository:
                     "priority": submission.priority,
                     "available_at": now,
                     "max_attempts": submission.max_attempts,
+                    "executor_key": submission.executor_key,
                 },
             ),
         )
@@ -735,6 +780,7 @@ class SQLiteRuntimeRepository:
         expected_revision: int,
         run_id: str | None = None,
         branch_id: str = "main",
+        executor_key: str = "unassigned",
         actor: str = "runtime",
         correlation_id: str | None = None,
     ) -> ThreadProjection:
@@ -751,7 +797,11 @@ class SQLiteRuntimeRepository:
             event_type="run.created",
             actor=actor,
             occurred_at=to_timestamp(self._clock()),
-            payload={"run_id": run_id, "branch_id": branch_id},
+            payload={
+                "run_id": run_id,
+                "branch_id": branch_id,
+                "executor_key": executor_key,
+            },
         )
         return self.append_thread_event(draft, expected_revision=expected_revision)
 
@@ -1033,6 +1083,7 @@ class SQLiteRuntimeRepository:
         priority: int = 0,
         available_at: datetime | None = None,
         max_attempts: int = 3,
+        executor_key: str | None = None,
         actor: str = "scheduler",
     ) -> SchedulerJob:
         if max_attempts < 1:
@@ -1046,23 +1097,32 @@ class SQLiteRuntimeRepository:
             run_projection = projection.run(run_id)
             if run_projection is None:
                 raise NotFound(f"run not found in thread {thread_id}: {run_id}")
+            resolved_executor_key = executor_key or run_projection.executor_key
+            if not resolved_executor_key.strip():
+                raise ValueError("executor_key is required")
             existing = connection.execute(
                 "SELECT * FROM scheduler_jobs WHERE run_id = ?", (run_id,)
             ).fetchone()
             if existing is not None:
-                if str(existing["thread_id"]) != thread_id:
-                    raise IdempotencyConflict(f"run id already belongs to another thread: {run_id}")
+                if (
+                    str(existing["thread_id"]) != thread_id
+                    or str(existing["executor_key"]) != resolved_executor_key
+                ):
+                    raise IdempotencyConflict(
+                        f"run id was already enqueued with different routing: {run_id}"
+                    )
                 return self._row_to_job(existing)
             connection.execute(
                 """
                 INSERT INTO scheduler_jobs(
-                    run_id, thread_id, state, priority, available_at, attempts,
+                    run_id, thread_id, executor_key, state, priority, available_at, attempts,
                     max_attempts, fencing_token, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, 0, ?, 0, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, 0, ?, ?)
                 """,
                 (
                     run_id,
                     thread_id,
+                    resolved_executor_key,
                     JobState.QUEUED.value,
                     priority,
                     available,
@@ -1087,6 +1147,7 @@ class SQLiteRuntimeRepository:
                         "priority": priority,
                         "available_at": available,
                         "max_attempts": max_attempts,
+                        "executor_key": resolved_executor_key,
                     },
                 ).normalized(),
             )
@@ -1101,16 +1162,30 @@ class SQLiteRuntimeRepository:
         *,
         worker_id: str,
         lease_seconds: int = 30,
+        executor_keys: Iterable[str] | None = None,
     ) -> WorkerClaim | None:
         if lease_seconds < 1:
             raise ValueError("lease_seconds must be at least 1")
         now_dt = self._clock()
         now = to_timestamp(now_dt)
         expires_at = to_timestamp(now_dt + timedelta(seconds=lease_seconds))
+        resolved_executor_keys = (
+            tuple(dict.fromkeys(key.strip() for key in executor_keys if key.strip()))
+            if executor_keys is not None
+            else None
+        )
+        if resolved_executor_keys == ():
+            return None
+        executor_clause = ""
+        executor_values: list[str] = []
+        if resolved_executor_keys is not None:
+            placeholders = ", ".join("?" for _ in resolved_executor_keys)
+            executor_clause = f"AND candidate.executor_key IN ({placeholders})"
+            executor_values.extend(resolved_executor_keys)
         with self._transaction() as connection:
             self._fail_exhausted_worker_claims(connection, now)
             row = connection.execute(
-                """
+                f"""
                 SELECT candidate.*
                 FROM scheduler_jobs AS candidate
                 WHERE (
@@ -1119,6 +1194,7 @@ class SQLiteRuntimeRepository:
                     (candidate.state = ? AND candidate.lease_expires_at <= ?)
                 )
                 AND candidate.attempts < candidate.max_attempts
+                {executor_clause}
                 AND NOT EXISTS (
                     SELECT 1 FROM scheduler_jobs AS active
                     WHERE active.thread_id = candidate.thread_id
@@ -1134,6 +1210,7 @@ class SQLiteRuntimeRepository:
                     now,
                     JobState.CLAIMED.value,
                     now,
+                    *executor_values,
                     JobState.CLAIMED.value,
                     now,
                 ),
@@ -1179,6 +1256,7 @@ class SQLiteRuntimeRepository:
                         "fencing_token": fencing_token,
                         "expires_at": expires_at,
                         "attempt": attempt,
+                        "executor_key": str(row["executor_key"]),
                     },
                 ).normalized(),
             )
@@ -1359,6 +1437,205 @@ class SQLiteRuntimeRepository:
             assert updated is not None
             return self._row_to_job(updated)
 
+    def finish_claimed_execution(
+        self,
+        claim: WorkerClaim,
+        *,
+        executor_key: str,
+        executor_version: str,
+        succeeded: bool,
+        output_artifact_id: str | None = None,
+        error_code: str | None = None,
+        error: str | None = None,
+        retryable: bool = True,
+        retry_delay_seconds: int = 0,
+    ) -> tuple[SchedulerJob, ThreadProjection]:
+        """Fence and atomically settle the scheduler, Run, and Thread execution subset.
+
+        Delivery, Attention-on-success, and Outbox finalization intentionally remain
+        outside this V2-004 subset and are joined by V2-006. A successful Artifact
+        therefore returns the Thread to DORMANT rather than claiming it was delivered.
+        """
+
+        executor_key = executor_key.strip()
+        executor_version = executor_version.strip()
+        if not executor_key or not executor_version:
+            raise ValueError("executor_key and executor_version are required")
+        if succeeded:
+            if output_artifact_id is None or not output_artifact_id.startswith("artifact:sha256:"):
+                raise ValueError("a successful execution requires an output Artifact reference")
+            if error_code is not None or error is not None:
+                raise ValueError("a successful execution cannot include an error")
+        elif not error_code or not error:
+            raise ValueError("a failed execution requires an error code and message")
+
+        now_dt = self._clock()
+        now = to_timestamp(now_dt)
+        with self._transaction() as connection:
+            row = self._assert_live_worker_claim(connection, claim, now)
+            projection = self._get_thread_in_transaction(connection, claim.thread_id)
+            if projection is None:
+                raise NotFound(f"thread not found: {claim.thread_id}")
+            run = projection.run(claim.run_id)
+            if run is None:
+                raise NotFound(f"run not found: {claim.run_id}")
+            if run.state != RunState.RUNNING or projection.active_run_id != claim.run_id:
+                raise InvalidTransition("only the active claimed Run may finish execution")
+            if run.executor_key != executor_key or str(row["executor_key"]) != executor_key:
+                raise InvalidTransition(
+                    f"claimed Run requires executor {run.executor_key}; got {executor_key}"
+                )
+
+            attempts = int(row["attempts"])
+            max_attempts = int(row["max_attempts"])
+            terminal_failure = not succeeded and (not retryable or attempts >= max_attempts)
+            if succeeded:
+                job_state = JobState.COMPLETED
+                run_target = RunState.COMPLETED
+                thread_target = ThreadState.DORMANT
+                scheduler_event_type = "scheduler.run_completed"
+                available_at = str(row["available_at"])
+                last_error = None
+            elif terminal_failure:
+                job_state = JobState.FAILED
+                run_target = RunState.FAILED
+                thread_target = ThreadState.FAILED
+                scheduler_event_type = "scheduler.run_failed"
+                available_at = str(row["available_at"])
+                last_error = f"{error_code}: {error}"
+            else:
+                job_state = JobState.QUEUED
+                run_target = RunState.QUEUED
+                thread_target = ThreadState.QUEUED
+                scheduler_event_type = "scheduler.run_retry_scheduled"
+                available_at = to_timestamp(now_dt + timedelta(seconds=max(0, retry_delay_seconds)))
+                last_error = f"{error_code}: {error}"
+
+            correlation_id = f"worker-claim:{claim.lease_id}"
+            run_event = self._insert_event(
+                connection,
+                EventDraft(
+                    stream_type="thread",
+                    stream_id=claim.thread_id,
+                    project_id=projection.project_id,
+                    thread_id=claim.thread_id,
+                    branch_id=run.branch_id,
+                    run_id=claim.run_id,
+                    correlation_id=correlation_id,
+                    event_type="run.state_changed",
+                    actor=claim.worker_id,
+                    occurred_at=now,
+                    payload={
+                        "run_id": claim.run_id,
+                        "from": run.state.value,
+                        "to": run_target.value,
+                        "output_artifact_id": output_artifact_id,
+                        "error": error,
+                        "error_code": error_code,
+                        "executor_key": executor_key,
+                        "executor_version": executor_version,
+                        "fencing_token": claim.fencing_token,
+                    },
+                ),
+            )
+            projection = reduce_thread(projection, run_event)
+            thread_event = self._insert_event(
+                connection,
+                EventDraft(
+                    stream_type="thread",
+                    stream_id=claim.thread_id,
+                    project_id=projection.project_id,
+                    thread_id=claim.thread_id,
+                    branch_id=run.branch_id,
+                    run_id=claim.run_id,
+                    correlation_id=correlation_id,
+                    causation_id=run_event.event_id,
+                    event_type="thread.state_changed",
+                    actor=claim.worker_id,
+                    occurred_at=now,
+                    payload={
+                        "from": projection.actual_state.value,
+                        "to": thread_target.value,
+                        "reason": (
+                            "artifact_ready_pending_delivery"
+                            if succeeded
+                            else "executor_failed"
+                            if terminal_failure
+                            else "executor_retry_scheduled"
+                        ),
+                    },
+                ),
+            )
+            projection = reduce_thread(projection, thread_event)
+            last_cause_id = thread_event.event_id
+            if terminal_failure and projection.attention_state != AttentionState.FAILED:
+                attention_event = self._insert_event(
+                    connection,
+                    EventDraft(
+                        stream_type="thread",
+                        stream_id=claim.thread_id,
+                        project_id=projection.project_id,
+                        thread_id=claim.thread_id,
+                        branch_id=run.branch_id,
+                        run_id=claim.run_id,
+                        correlation_id=correlation_id,
+                        causation_id=thread_event.event_id,
+                        event_type="thread.attention_changed",
+                        actor=claim.worker_id,
+                        occurred_at=now,
+                        payload={
+                            "from": projection.attention_state.value,
+                            "to": AttentionState.FAILED.value,
+                            "reason": error_code,
+                        },
+                    ),
+                )
+                projection = reduce_thread(projection, attention_event)
+                last_cause_id = attention_event.event_id
+            self._upsert_thread_projection(connection, projection)
+
+            connection.execute(
+                """
+                UPDATE scheduler_jobs
+                SET state = ?, available_at = ?, lease_owner = NULL, lease_id = NULL,
+                    lease_expires_at = NULL, last_error = ?, updated_at = ?
+                WHERE run_id = ?
+                """,
+                (job_state.value, available_at, last_error, now, claim.run_id),
+            )
+            self._insert_event(
+                connection,
+                EventDraft(
+                    stream_type="scheduler-run",
+                    stream_id=claim.run_id,
+                    project_id=projection.project_id,
+                    thread_id=claim.thread_id,
+                    branch_id=run.branch_id,
+                    run_id=claim.run_id,
+                    correlation_id=correlation_id,
+                    causation_id=last_cause_id,
+                    event_type=scheduler_event_type,
+                    actor=claim.worker_id,
+                    occurred_at=now,
+                    payload={
+                        "lease_id": claim.lease_id,
+                        "fencing_token": claim.fencing_token,
+                        "attempt": attempts,
+                        "executor_key": executor_key,
+                        "executor_version": executor_version,
+                        "output_artifact_id": output_artifact_id,
+                        "error_code": error_code,
+                        "error": error,
+                        "available_at": available_at,
+                    },
+                ).normalized(),
+            )
+            updated = connection.execute(
+                "SELECT * FROM scheduler_jobs WHERE run_id = ?", (claim.run_id,)
+            ).fetchone()
+            assert updated is not None
+            return self._row_to_job(updated), projection
+
     def get_job(self, run_id: str) -> SchedulerJob:
         with self._connect() as connection:
             row = connection.execute(
@@ -1367,6 +1644,36 @@ class SQLiteRuntimeRepository:
         if row is None:
             raise NotFound(f"scheduler job not found: {run_id}")
         return self._row_to_job(row)
+
+    def list_jobs(
+        self,
+        *,
+        state: JobState | None = None,
+        executor_key: str | None = None,
+        limit: int = 100,
+    ) -> list[SchedulerJob]:
+        if limit < 1:
+            raise ValueError("limit must be at least 1")
+        clauses: list[str] = []
+        values: list[Any] = []
+        if state is not None:
+            clauses.append("state = ?")
+            values.append(state.value)
+        if executor_key is not None:
+            clauses.append("executor_key = ?")
+            values.append(executor_key.strip())
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        values.append(limit)
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT * FROM scheduler_jobs {where}
+                ORDER BY updated_at DESC, priority DESC, run_id ASC
+                LIMIT ?
+                """,
+                values,
+            ).fetchall()
+        return [self._row_to_job(row) for row in rows]
 
     # ------------------------------------------------------------------
     # Cross-thread resource leases
@@ -1914,6 +2221,10 @@ class SQLiteRuntimeRepository:
             raise ValueError("message_artifact_id must be an Artifact CAS reference")
         if not submission.text_artifact_id.startswith("artifact:sha256:"):
             raise ValueError("text_artifact_id must be an Artifact CAS reference")
+        if submission.max_attempts < 1:
+            raise ValueError("max_attempts must be at least 1")
+        if not submission.executor_key.strip():
+            raise ValueError("executor_key is required")
         projection = self._get_thread_in_transaction(connection, submission.thread_id)
         if projection is None:
             raise NotFound(f"thread not found: {submission.thread_id}")
@@ -2117,6 +2428,7 @@ class SQLiteRuntimeRepository:
                     "run_id": submission.new_run_id,
                     "branch_id": target_branch_id,
                     "supersedes_run_id": submission.supersedes_run_id,
+                    "executor_key": submission.executor_key,
                 },
             ),
         )
@@ -2206,13 +2518,14 @@ class SQLiteRuntimeRepository:
         connection.execute(
             """
             INSERT INTO scheduler_jobs(
-                run_id, thread_id, state, priority, available_at, attempts,
+                run_id, thread_id, executor_key, state, priority, available_at, attempts,
                 max_attempts, fencing_token, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, 0, ?, 0, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, 0, ?, ?)
             """,
             (
                 submission.new_run_id,
                 submission.thread_id,
+                submission.executor_key,
                 JobState.QUEUED.value,
                 submission.priority,
                 submission.occurred_at,
@@ -2238,6 +2551,7 @@ class SQLiteRuntimeRepository:
                     "priority": submission.priority,
                     "available_at": submission.occurred_at,
                     "max_attempts": submission.max_attempts,
+                    "executor_key": submission.executor_key,
                 },
             ),
         )
@@ -3451,6 +3765,7 @@ class SQLiteRuntimeRepository:
             RunProjection(
                 run_id=item["run_id"],
                 branch_id=item["branch_id"],
+                executor_key=str(item.get("executor_key") or "unassigned"),
                 state=RunState(item["state"]),
                 revision=int(item["revision"]),
                 started_at=item.get("started_at"),
@@ -3550,6 +3865,7 @@ class SQLiteRuntimeRepository:
             available_at=str(row["available_at"]),
             attempts=int(row["attempts"]),
             max_attempts=int(row["max_attempts"]),
+            executor_key=str(row["executor_key"]),
             lease_owner=row["lease_owner"],
             lease_id=row["lease_id"],
             fencing_token=int(row["fencing_token"]),
