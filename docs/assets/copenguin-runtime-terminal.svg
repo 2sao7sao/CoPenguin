@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="720" viewBox="0 0 1180 720" role="img" aria-labelledby="title desc">
+  <title id="title">CoPenguin runtime contract</title>
+  <desc id="desc">A terminal-style diagram showing the test-backed boundaries of the current CoPenguin runtime.</desc>
+  <defs>
+    <linearGradient id="termBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#12372f"/>
+      <stop offset="100%" stop-color="#061916"/>
+    </linearGradient>
+    <style>
+      .chrome{fill:#102821;stroke:#7ca999;stroke-width:1.2}.dot{fill:#f4b35f}.dot2{fill:#df6a4f}.dot3{fill:#5fbf88}
+      .title{font:700 18px 'Avenir Next','Trebuchet MS',sans-serif;fill:#dff5ed}.mono{font:500 18px 'SFMono-Regular','Menlo','Consolas',monospace;fill:#dff5ed}
+      .small{font:500 15px 'SFMono-Regular','Menlo','Consolas',monospace;fill:#dff5ed}.muted{fill:#95b9ad}.ok{fill:#8ee3b0}.warn{fill:#ffd083}.accent{fill:#f4b35f}
+      .panel{fill:#0b261f;stroke:#2d5b4f;stroke-width:1}.label{font:800 13px 'Avenir Next','Trebuchet MS',sans-serif;letter-spacing:.08em;fill:#95b9ad}
+      .metric{font:800 28px Georgia,'Times New Roman',serif;fill:#f9f0d8}
+    </style>
+  </defs>
+  <rect width="1180" height="720" rx="34" fill="#f4efe3"/>
+  <rect x="42" y="42" width="1096" height="636" rx="24" fill="url(#termBg)" stroke="#93b8a9"/>
+  <rect x="42" y="42" width="1096" height="58" rx="24" class="chrome"/>
+  <circle cx="78" cy="71" r="8" class="dot2"/><circle cx="104" cy="71" r="8" class="dot"/><circle cx="130" cy="71" r="8" class="dot3"/>
+  <text x="168" y="78" class="title">CoPenguin: source -> verified, inspectable delivery</text>
+
+  <text x="74" y="136" class="mono accent">$ pytest -q</text>
+  <text x="74" y="178" class="mono ok">runtime contract: PASS</text>
+  <text x="74" y="212" class="mono muted">source: tests/test_runtime_trusted_closure.py</text>
+
+  <rect x="74" y="244" width="314" height="124" rx="18" class="panel"/>
+  <text x="98" y="276" class="label">HISTORY</text><text x="98" y="314" class="metric">replayable</text><text x="98" y="342" class="small muted">event journal + projections</text>
+  <rect x="432" y="244" width="314" height="124" rx="18" class="panel"/>
+  <text x="456" y="276" class="label">EXECUTION</text><text x="456" y="314" class="metric">fenced</text><text x="456" y="342" class="small muted">leases + Step attempts</text>
+  <rect x="790" y="244" width="274" height="124" rx="18" class="panel"/>
+  <text x="814" y="276" class="label">CLOSURE</text><text x="814" y="314" class="metric">atomic</text><text x="814" y="342" class="small muted">Delivery + Outbox intent</text>
+
+  <text x="74" y="420" class="mono">## Current invariants</text>
+  <text x="98" y="460" class="small ok">step_causal_trace:        replayable</text>
+  <text x="98" y="492" class="small ok">verifier_failure:         delivery_blocked</text>
+  <text x="98" y="524" class="small ok">terminal_transaction:     atomic</text>
+  <text x="98" y="556" class="small warn">autonomous_promotion:     not_enabled</text>
+
+  <text x="74" y="616" class="mono muted">Trusted closure is test-backed. Owner decisions and product demand remain open gates.</text>
+</svg>

@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="720" viewBox="0 0 1600 720" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">CoPenguin banner</title>
+  <desc id="desc">A chibi character gliding forward in a penguin costume beside a terminal-shaped map of the CoPenguin runtime.</desc>
+  <defs>
+    <pattern id="grid" width="80" height="80" patternUnits="userSpaceOnUse">
+      <path d="M80 0H0V80" stroke="#261421" stroke-opacity=".7" stroke-width="1"/>
+    </pattern>
+    <linearGradient id="pink" x1="120" x2="620" y1="120" y2="610" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ff7fbd"/>
+      <stop offset="1" stop-color="#ff2f86"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="18" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="1600" height="720" fill="#0f0b12"/>
+  <rect width="1600" height="720" fill="url(#grid)"/>
+  <circle cx="1370" cy="120" r="260" fill="#ff5aa5" opacity=".07"/>
+  <circle cx="220" cy="610" r="280" fill="#b8eee4" opacity=".05"/>
+  <rect x="72" y="62" width="1456" height="596" rx="28" fill="#140e16" stroke="#342031"/>
+
+  <g transform="translate(106 67) scale(.45)">
+    <path d="M177 142c30-3 52 5 65 19-18 12-42 14-65 8v-27Z" fill="#565762" stroke="#1b1922" stroke-width="5"/>
+    <ellipse cx="102" cy="226" rx="32" ry="14" transform="rotate(-8 102 226)" fill="#f5b82e" stroke="#1b1922" stroke-width="5"/>
+    <ellipse cx="179" cy="202" rx="25" ry="11" transform="rotate(-28 179 202)" fill="#f5b82e" stroke="#1b1922" stroke-width="5"/>
+    <path d="M78 131C49 135 28 150 22 169c-4 13 8 22 22 18 18-6 33-17 47-32l-13-24Z" fill="#565762" stroke="#1b1922" stroke-width="5"/>
+    <path d="M177 118c29-7 51 0 63 17 8 11 0 23-15 22-19-1-37-8-55-19l7-20Z" fill="#565762" stroke="#1b1922" stroke-width="5"/>
+    <ellipse cx="128" cy="160" rx="62" ry="72" transform="rotate(-5 128 160)" fill="#565762" stroke="#1b1922" stroke-width="5"/>
+    <ellipse cx="124" cy="169" rx="41" ry="51" transform="rotate(-5 124 169)" fill="#fffaf6"/>
+    <ellipse cx="128" cy="78" rx="75" ry="66" fill="#565762" stroke="#1b1922" stroke-width="5"/>
+    <ellipse cx="128" cy="89" rx="51" ry="45" fill="#ffd9ca" stroke="#1b1922" stroke-width="4"/>
+    <path d="M77 85c4-36 27-54 53-54 31 0 52 20 53 55-9-12-18-20-29-25-7 11-17 19-31 24-13-9-29-12-46 0Z" fill="#302e37"/>
+    <path d="M81 83c-2 17 4 32 17 43-15-2-25-11-29-25 1-8 5-14 12-18Z" fill="#302e37"/>
+    <path d="M175 80c4 17 0 32-11 44 14-3 23-12 27-26-2-8-7-14-16-18Z" fill="#302e37"/>
+    <ellipse cx="108" cy="94" rx="10" ry="13" fill="#596779" stroke="#1b1922" stroke-width="3"/>
+    <ellipse cx="148" cy="94" rx="10" ry="13" fill="#596779" stroke="#1b1922" stroke-width="3"/>
+    <circle cx="105" cy="90" r="3" fill="#fff"/>
+    <circle cx="145" cy="90" r="3" fill="#fff"/>
+    <path d="M116 112c8 8 16 8 24 0 0 13-5 19-12 19s-12-6-12-19Z" fill="#d86a68" stroke="#1b1922" stroke-width="3"/>
+    <circle cx="101" cy="35" r="10" fill="#fff" stroke="#1b1922" stroke-width="5"/>
+    <circle cx="155" cy="35" r="10" fill="#fff" stroke="#1b1922" stroke-width="5"/>
+    <circle cx="101" cy="35" r="4" fill="#1b1922"/>
+    <circle cx="155" cy="35" r="4" fill="#1b1922"/>
+    <path d="M108 48c12-10 28-10 40 0l-20 16-20-16Z" fill="#f5b82e" stroke="#1b1922" stroke-width="5"/>
+  </g>
+
+  <text x="116" y="252" fill="#ff5aa5" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" letter-spacing="3">7SAO DEVELOPER SYSTEMS</text>
+  <text x="112" y="342" fill="#fff4fb" font-family="Inter, Arial, sans-serif" font-size="88" font-weight="800">CoPenguin</text>
+  <text x="118" y="398" fill="#d8c6d0" font-family="Inter, Arial, sans-serif" font-size="28">A durable personal agent runtime.</text>
+  <text x="118" y="446" fill="#a998a4" font-family="Inter, Arial, sans-serif" font-size="21">Threads, checkpoints, approvals, receipts, memory, and safe evolution.</text>
+
+  <g font-family="Inter, Arial, sans-serif" font-size="17" font-weight="700">
+    <rect x="118" y="505" width="124" height="38" rx="19" fill="#21131d" stroke="#ff5aa5"/>
+    <text x="142" y="530" fill="#ff8cba">threads</text>
+    <rect x="258" y="505" width="132" height="38" rx="19" fill="#21131d" stroke="#ff5aa5"/>
+    <text x="283" y="530" fill="#ff8cba">receipts</text>
+    <rect x="406" y="505" width="124" height="38" rx="19" fill="#21131d" stroke="#ff5aa5"/>
+    <text x="429" y="530" fill="#ff8cba">memory</text>
+    <rect x="546" y="505" width="134" height="38" rx="19" fill="#21131d" stroke="#ff5aa5"/>
+    <text x="567" y="530" fill="#ff8cba">evolution</text>
+  </g>
+
+  <g transform="translate(930 112)">
+    <rect width="504" height="456" rx="24" fill="#09070a" stroke="#3b2536"/>
+    <rect width="504" height="56" rx="24" fill="#181018"/>
+    <circle cx="32" cy="28" r="7" fill="#ff5aa5"/>
+    <circle cx="56" cy="28" r="7" fill="#ffd1e5"/>
+    <circle cx="80" cy="28" r="7" fill="#b8eee4"/>
+    <text x="30" y="106" fill="#ff5aa5" font-family="SFMono-Regular, Menlo, monospace" font-size="18">$ copenguin receive</text>
+    <g font-family="SFMono-Regular, Menlo, monospace" font-size="20">
+      <text x="30" y="164" fill="#fff4fb">Inbox route</text>
+      <text x="30" y="214" fill="#fff4fb">Durable TaskThread</text>
+      <text x="30" y="264" fill="#fff4fb">Fenced checkpoint</text>
+      <text x="30" y="314" fill="#fff4fb">Intent + approval</text>
+      <text x="30" y="364" fill="#fff4fb">Provider + receipt</text>
+      <text x="30" y="414" fill="#b8eee4">Inspectable delivery</text>
+    </g>
+    <path d="M420 132C454 190 450 286 394 350C356 394 304 410 242 408" stroke="url(#pink)" stroke-width="6" stroke-linecap="round" filter="url(#glow)"/>
+  </g>
+</svg>

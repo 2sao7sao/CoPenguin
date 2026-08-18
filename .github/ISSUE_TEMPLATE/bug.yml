@@ -1,0 +1,55 @@
+name: Bug report
+description: Report a reproducible CoPenguin defect (not a security vulnerability).
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: Do not report vulnerabilities or include private user data here. Use SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: v0.1.0 or full commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      options:
+        - Runtime / scheduler
+        - Inbox / routing
+        - Approval / provider
+        - Feishu
+        - Memory / knowledge adapter
+        - Packaging / Docker
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Provide the smallest safe sequence that reproduces the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior and evidence
+      description: Include sanitized logs, event types, or test output. Remove secrets and personal data.
+    validations:
+      required: true
+  - type: textarea
+    id: recovery
+    attributes:
+      label: Recovery or data impact
+      description: Did restart, replay, retry, or an external side effect change the outcome?
