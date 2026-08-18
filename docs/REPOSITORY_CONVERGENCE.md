@@ -56,7 +56,8 @@ only after the convergence pull request is green and merged:
 1. close pull requests #1 through #7 as superseded, retaining their history;
 2. enable default-branch protection with required pull requests and required CI
    checks (`pull-request-contract`, both Python test jobs, `package`, and
-   `dependency-audit`);
+   `dependency-audit`; `container` joins the required set with the v0.1.0
+   release-preparation pull request);
 3. disable force pushes and branch deletion for `main`;
 4. verify the GitHub Community Standards page detects the new files;
 5. run the release checklist and create `v0.1.0`.
