@@ -73,6 +73,19 @@ jobs:
       - name: Smoke-test installed CLI
         run: copenguin --help
 
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build container image
+        run: docker build --tag copenguin:ci .
+      - name: Run credential-free demo in a read-only container
+        run: >-
+          docker run --rm --read-only --tmpfs /tmp
+          --env COPENGUIN_DATA_DIR=/tmp/copenguin-data
+          copenguin:ci copenguin demo --json
+
   dependency-audit:
     runs-on: ubuntu-latest
     timeout-minutes: 10

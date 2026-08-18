@@ -6,6 +6,8 @@ All notable changes to CoPenguin are documented here. The project follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-08-18
+
 ### Added
 
 - bounded Worker Host and deterministic Source-to-Artifact Alpha path;
@@ -23,9 +25,9 @@ All notable changes to CoPenguin are documented here. The project follows
 
 ## Release policy
 
-`0.1.0` will be the first tagged Alpha after the convergence pull request is
-merged and the release checklist in [docs/RELEASING.md](docs/RELEASING.md)
-passes. Until that tag exists, the package version is a release candidate, not
-evidence of a published release.
+`0.1.0` is the first CoPenguin Alpha. A package version is considered published
+only when its matching Git tag and GitHub Release exist and the checklist in
+[docs/RELEASING.md](docs/RELEASING.md) has passed.
 
-[Unreleased]: https://github.com/2sao7sao/CoPenguin/commits/main
+[Unreleased]: https://github.com/2sao7sao/CoPenguin/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/2sao7sao/CoPenguin/releases/tag/v0.1.0
