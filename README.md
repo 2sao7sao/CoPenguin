@@ -26,10 +26,10 @@
 <img src="assets/readme-banner.svg" alt="CoPenguin banner with its chibi penguin-suit mascot" width="100%" />
 
 > [!IMPORTANT]
-> **Status: early Alpha.** V2-001 through V2-006 now have test-backed slices on
-> the convergence branch: a source can reach a verified, inspectable Delivery
-> through replay-visible Steps and one atomic terminal transaction. V2-007 owner
-> decisions and transactional channel dispatch remain next. CoPenguin never
+> **Status: early Alpha.** V2-001 through V2-007 now have test-backed slices: a
+> source can reach a verified, inspectable Delivery through replay-visible Steps,
+> one atomic terminal transaction, and a replayable owner decision. Transactional
+> channel dispatch and real Feishu publication remain separate gates. CoPenguin never
 > autonomously promotes memory, skills, hooks, or permissions.
 
 A useful personal agent should accept work through one natural chat surface without
@@ -54,7 +54,9 @@ one inbox
   -> fenced worker + recoverable checkpoint
   -> replay-visible Steps + optional governed external action
   -> deterministic verifier
-  -> atomic Delivery + Outbox intent + governed learning candidates
+  -> atomic Delivery + Outbox intent
+  -> accept | revise | reject | defer | take over
+  -> governed learning candidates
 ```
 
 The Alpha Golden Path is **Source → Inspectable Artifact**: turn an explicitly selected
@@ -72,8 +74,8 @@ propose a memory, skill, hook, or permission change, but it cannot promote itsel
 | Recovery | Immutable Artifact CAS, frozen Run snapshots, checkpoints, Step attempts |
 | Inbox decisions | Chat, new task, durable task update, control, or owner-confirmed ambiguity |
 | External effects | Intent → approval → provider → Receipt, with crash reconciliation |
-| Trusted closure | Deterministic verifier, versioned Delivery, atomic terminal state + Outbox intent |
-| Operator views | Read-only projections for Threads, Steps, Deliveries, Outbox, routes, actions, approvals |
+| Trusted closure | Deterministic verifier, versioned Delivery, five replayable owner decisions, immutable revision Runs |
+| Operator views | Projections for Threads, Steps, Deliveries, decisions, Outbox, routes, actions, approvals |
 | Entry points | Local CLI, Feishu webhook, and optional Feishu long connection |
 | Optional intelligence | Adapters for EvolveMemory and EvolveKB |
 
@@ -230,7 +232,7 @@ The first concrete recipe is specified in the
 [Feishu Memory and Knowledge System v0.1](docs/FEISHU_KNOWLEDGE_SYSTEM_SPEC_V0.1.md):
 an explicitly selected Feishu source becomes a verified Project Decision Record,
 then an accepted Delivery can be published to a Wiki draft through durable approval.
-The first six convergence slices have test-backed acceptance on this branch:
+The first seven convergence slices have test-backed acceptance on this branch:
 [V2-001 Unified Ingress](docs/V2_001_UNIFIED_INGRESS.md) provides restart-safe message
 identity; [V2-002 Durable Product Approvals](docs/V2_002_DURABLE_PRODUCT_APPROVALS.md)
 binds computer actions to durable Intent, Approval, claim, Artifact, and Receipt
@@ -238,9 +240,10 @@ records; [V2-003 Durable Thread Updates](docs/V2_003_DURABLE_THREAD_UPDATES.md) 
 supplements, goal changes, method Branches, cancellation, and ambiguous route decisions
 durable; [V2-004 Worker Host](docs/V2_004_WORKER_HOST.md) adds bounded execution;
 [V2-005 Step + Verifier](docs/V2_005_STEP_VERIFIER.md) creates causal Step and
-verification evidence; and [V2-006 Atomic Delivery](docs/V2_006_ATOMIC_DELIVERY.md)
-closes every terminal database surface in one transaction. V2-007 owner Delivery
-decisions are the next ordered slice.
+verification evidence; [V2-006 Atomic Delivery](docs/V2_006_ATOMIC_DELIVERY.md)
+closes every terminal database surface in one transaction; and
+[V2-007 Delivery Decisions](docs/V2_007_DELIVERY_DECISIONS.md) persists all five
+owner outcomes and creates an immutable, snapshot-bound Run for revision requests.
 
 ## Stable vs Prototype
 
@@ -253,6 +256,8 @@ decisions are the next ordered slice.
   and deterministic DecisionRecordVerifier;
 - atomic Run/Thread/scheduler/Delivery/Attention/Outbox finalization with injected
   rollback coverage;
+- idempotent, replayable accept/revise/reject/defer/take-over decisions; revision
+  requests atomically enqueue a new snapshot-bound Run without replacing prior work;
 - Feishu/local unified ingress, restart-safe inbound dedupe, normalized message
   Artifacts, and conservative persistent route decisions;
 - durable Thread updates with immutable replacement snapshots/Runs, method-change
@@ -271,7 +276,6 @@ decisions are the next ordered slice.
   its computer gateway executes claimed Actions inline rather than through Worker Host;
 - Delivery notification intent is transactional, but channel dispatch and send
   Receipt are not yet connected to the Outbox;
-- accept/revise/reject/defer/take-over decisions and immutable revision Runs are V2-007;
 - Feishu long connection and cards have mocked contract coverage but still need a
   credential-backed real-app smoke test;
 - broad vision-driven computer use is not shipped; the real macOS provider is

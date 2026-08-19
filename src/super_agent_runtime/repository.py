@@ -29,6 +29,8 @@ from .models import (
     AttentionState,
     BranchProjection,
     BranchStatus,
+    DeliveryDecisionRecord,
+    DeliveryDecisionType,
     DeliveryRecord,
     DeliveryState,
     DesiredState,
@@ -59,7 +61,7 @@ from .models import (
     to_timestamp,
     utc_now,
 )
-from .reducer import reduce_thread
+from .reducer import reduce_delivery, reduce_thread
 
 
 class SQLiteRuntimeRepository:
@@ -327,6 +329,10 @@ class SQLiteRuntimeRepository:
                     created_at TEXT NOT NULL,
                     presented_at TEXT,
                     decided_at TEXT,
+                    decision_id TEXT,
+                    decision_artifact_id TEXT,
+                    decision_actor TEXT,
+                    revision_run_id TEXT,
                     UNIQUE(thread_id, version)
                 );
 
@@ -334,6 +340,23 @@ class SQLiteRuntimeRepository:
                     ON deliveries(thread_id, version DESC);
                 CREATE INDEX IF NOT EXISTS idx_deliveries_state
                     ON deliveries(state, created_at);
+
+                CREATE TABLE IF NOT EXISTS delivery_decisions (
+                    decision_id TEXT PRIMARY KEY,
+                    delivery_id TEXT NOT NULL UNIQUE,
+                    thread_id TEXT NOT NULL,
+                    run_id TEXT NOT NULL,
+                    decision TEXT NOT NULL,
+                    actor TEXT NOT NULL,
+                    decision_artifact_id TEXT NOT NULL,
+                    idempotency_key TEXT NOT NULL UNIQUE,
+                    revision_run_id TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(delivery_id) REFERENCES deliveries(delivery_id)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_delivery_decisions_thread
+                    ON delivery_decisions(thread_id, created_at);
 
                 CREATE TABLE IF NOT EXISTS runtime_outbox (
                     outbox_id TEXT PRIMARY KEY,
@@ -430,6 +453,22 @@ class SQLiteRuntimeRepository:
                 "CREATE INDEX IF NOT EXISTS idx_inbox_project "
                 "ON inbox_messages(project_id, created_at)"
             )
+            delivery_columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(deliveries)").fetchall()
+            }
+            for column in (
+                "decision_id",
+                "decision_artifact_id",
+                "decision_actor",
+                "revision_run_id",
+            ):
+                if column not in delivery_columns:
+                    connection.execute(f"ALTER TABLE deliveries ADD COLUMN {column} TEXT")
+            connection.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_deliveries_decision_id "
+                "ON deliveries(decision_id) WHERE decision_id IS NOT NULL"
+            )
             connection.execute(
                 "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
                 (1, to_timestamp(self._clock())),
@@ -461,6 +500,10 @@ class SQLiteRuntimeRepository:
             connection.execute(
                 "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
                 (8, to_timestamp(self._clock())),
+            )
+            connection.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                (9, to_timestamp(self._clock())),
             )
 
     # ------------------------------------------------------------------
@@ -1156,6 +1199,29 @@ class SQLiteRuntimeRepository:
     def verify_thread_replay(self, thread_id: str) -> bool:
         stored = self.get_thread(thread_id)
         replayed = self.replay_thread(thread_id)
+        return stored.projection_hash == replayed.projection_hash
+
+    def replay_delivery(self, delivery_id: str) -> DeliveryRecord:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM runtime_events
+                WHERE stream_type = 'delivery' AND stream_id = ?
+                ORDER BY sequence ASC
+                """,
+                (delivery_id,),
+            ).fetchall()
+        if not rows:
+            raise NotFound(f"Delivery event stream not found: {delivery_id}")
+        projection: DeliveryRecord | None = None
+        for row in rows:
+            projection = reduce_delivery(projection, self._row_to_event(row))
+        assert projection is not None
+        return projection
+
+    def verify_delivery_replay(self, delivery_id: str) -> bool:
+        stored = self.get_delivery(delivery_id)
+        replayed = self.replay_delivery(delivery_id)
         return stored.projection_hash == replayed.projection_hash
 
     # ------------------------------------------------------------------
@@ -2350,6 +2416,444 @@ class SQLiteRuntimeRepository:
             ).fetchone()
             assert updated is not None
             return self._row_to_delivery(updated)
+
+    def find_delivery_decision(
+        self,
+        *,
+        idempotency_key: str,
+    ) -> DeliveryDecisionRecord | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM delivery_decisions WHERE idempotency_key = ?",
+                (idempotency_key,),
+            ).fetchone()
+        return self._row_to_delivery_decision(row) if row is not None else None
+
+    def get_delivery_decision(self, delivery_id: str) -> DeliveryDecisionRecord:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM delivery_decisions WHERE delivery_id = ?",
+                (delivery_id,),
+            ).fetchone()
+        if row is None:
+            raise NotFound(f"Delivery decision not found: {delivery_id}")
+        return self._row_to_delivery_decision(row)
+
+    def decide_delivery(
+        self,
+        delivery_id: str,
+        *,
+        decision: DeliveryDecisionType,
+        decision_id: str,
+        decision_artifact_id: str,
+        idempotency_key: str,
+        actor: str,
+        revision_run_id: str | None = None,
+        revision_task_snapshot_id: str | None = None,
+        revision_agent_snapshot_id: str | None = None,
+        revision_context_manifest_id: str | None = None,
+    ) -> tuple[
+        DeliveryRecord,
+        DeliveryDecisionRecord,
+        ThreadProjection,
+        SchedulerJob | None,
+    ]:
+        """Record one owner decision and atomically enqueue a revision when requested."""
+
+        delivery_id = delivery_id.strip()
+        decision_id = decision_id.strip()
+        idempotency_key = idempotency_key.strip()
+        actor = actor.strip()
+        if not all((delivery_id, decision_id, idempotency_key, actor)):
+            raise ValueError("delivery_id, decision_id, idempotency_key, and actor are required")
+        if not decision_artifact_id.startswith("artifact:sha256:"):
+            raise ValueError("decision_artifact_id must be an Artifact CAS reference")
+        revision_fields = (
+            revision_run_id,
+            revision_task_snapshot_id,
+            revision_agent_snapshot_id,
+            revision_context_manifest_id,
+        )
+        if decision == DeliveryDecisionType.REVISE:
+            if not all(revision_fields):
+                raise ValueError("revision decisions require a Run and all frozen snapshots")
+            if any(not str(value).startswith("artifact:sha256:") for value in revision_fields[1:]):
+                raise ValueError("revision snapshots must be Artifact CAS references")
+        elif any(revision_fields):
+            raise ValueError("only a revision decision may create a revision Run")
+
+        now = to_timestamp(self._clock())
+        with self._transaction() as connection:
+            existing = connection.execute(
+                "SELECT * FROM delivery_decisions WHERE idempotency_key = ?",
+                (idempotency_key,),
+            ).fetchone()
+            if existing is not None:
+                record = self._row_to_delivery_decision(existing)
+                if (
+                    record.delivery_id != delivery_id
+                    or record.decision != decision
+                    or record.decision_id != decision_id
+                    or record.decision_artifact_id != decision_artifact_id
+                    or record.actor != actor
+                    or record.revision_run_id != revision_run_id
+                ):
+                    raise IdempotencyConflict(
+                        "Delivery decision idempotency key was reused for another decision"
+                    )
+                delivery_row = connection.execute(
+                    "SELECT * FROM deliveries WHERE delivery_id = ?",
+                    (delivery_id,),
+                ).fetchone()
+                if delivery_row is None:
+                    raise NotFound(f"delivery not found: {delivery_id}")
+                projection = self._get_thread_in_transaction(connection, record.thread_id)
+                if projection is None:
+                    raise NotFound(f"thread not found: {record.thread_id}")
+                job = None
+                if record.revision_run_id is not None:
+                    job_row = connection.execute(
+                        "SELECT * FROM scheduler_jobs WHERE run_id = ?",
+                        (record.revision_run_id,),
+                    ).fetchone()
+                    if job_row is not None:
+                        job = self._row_to_job(job_row)
+                return self._row_to_delivery(delivery_row), record, projection, job
+
+            delivery_row = connection.execute(
+                "SELECT * FROM deliveries WHERE delivery_id = ?",
+                (delivery_id,),
+            ).fetchone()
+            if delivery_row is None:
+                raise NotFound(f"delivery not found: {delivery_id}")
+            delivery = self._row_to_delivery(delivery_row)
+            if delivery.state != DeliveryState.PRESENTED:
+                raise InvalidTransition("only a presented Delivery may receive an owner decision")
+            if decision.value not in delivery.allowed_decisions:
+                raise InvalidTransition(f"Delivery does not allow decision: {decision.value}")
+
+            projection = self._get_thread_in_transaction(connection, delivery.thread_id)
+            if projection is None:
+                raise NotFound(f"thread not found: {delivery.thread_id}")
+            run = projection.run(delivery.run_id)
+            if run is None:
+                raise NotFound(f"run not found: {delivery.run_id}")
+            if projection.latest_delivery_id != delivery.delivery_id:
+                raise InvalidTransition("only the latest Delivery may receive a decision")
+            if projection.actual_state != ThreadState.DELIVERED:
+                raise InvalidTransition("Delivery decisions require a delivered Thread")
+            if projection.attention_state != AttentionState.DELIVERY_READY:
+                raise InvalidTransition("Delivery decision attention is not active")
+
+            correlation_id = f"delivery-decision:{decision_id}"
+            decision_event = self._insert_event(
+                connection,
+                EventDraft(
+                    stream_type="delivery",
+                    stream_id=delivery.delivery_id,
+                    project_id=projection.project_id,
+                    thread_id=delivery.thread_id,
+                    branch_id=run.branch_id,
+                    run_id=delivery.run_id,
+                    correlation_id=correlation_id,
+                    event_type="delivery.decision_recorded",
+                    actor=actor,
+                    occurred_at=now,
+                    payload={
+                        "delivery_id": delivery.delivery_id,
+                        "decision_id": decision_id,
+                        "decision": decision.value,
+                        "decision_artifact_id": decision_artifact_id,
+                        "idempotency_key": idempotency_key,
+                        "revision_run_id": revision_run_id,
+                    },
+                ),
+            )
+            reduced_delivery = reduce_delivery(delivery, decision_event)
+            connection.execute(
+                """
+                INSERT INTO delivery_decisions(
+                    decision_id, delivery_id, thread_id, run_id, decision, actor,
+                    decision_artifact_id, idempotency_key, revision_run_id, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    decision_id,
+                    delivery.delivery_id,
+                    delivery.thread_id,
+                    delivery.run_id,
+                    decision.value,
+                    actor,
+                    decision_artifact_id,
+                    idempotency_key,
+                    revision_run_id,
+                    now,
+                ),
+            )
+            connection.execute(
+                """
+                UPDATE deliveries
+                SET state = ?, decided_at = ?, decision_id = ?, decision_artifact_id = ?,
+                    decision_actor = ?, revision_run_id = ?
+                WHERE delivery_id = ?
+                """,
+                (
+                    reduced_delivery.state.value,
+                    now,
+                    decision_id,
+                    decision_artifact_id,
+                    actor,
+                    revision_run_id,
+                    delivery.delivery_id,
+                ),
+            )
+
+            revision_job: SchedulerJob | None = None
+            if decision == DeliveryDecisionType.REVISE:
+                assert revision_run_id is not None
+                assert revision_task_snapshot_id is not None
+                assert revision_agent_snapshot_id is not None
+                assert revision_context_manifest_id is not None
+                if projection.desired_state != DesiredState.RUN:
+                    raise InvalidTransition(
+                        "a paused or cancelled Thread cannot enqueue a revision"
+                    )
+                if projection.run(revision_run_id) is not None:
+                    raise IdempotencyConflict(f"revision run already exists: {revision_run_id}")
+                prior_job = connection.execute(
+                    "SELECT * FROM scheduler_jobs WHERE run_id = ?",
+                    (delivery.run_id,),
+                ).fetchone()
+                if prior_job is None:
+                    raise NotFound(f"scheduler job not found: {delivery.run_id}")
+                thread_drafts = (
+                    EventDraft(
+                        stream_type="thread",
+                        stream_id=delivery.thread_id,
+                        project_id=projection.project_id,
+                        thread_id=delivery.thread_id,
+                        branch_id=run.branch_id,
+                        run_id=revision_run_id,
+                        correlation_id=correlation_id,
+                        causation_id=decision_event.event_id,
+                        event_type="run.created",
+                        actor=actor,
+                        occurred_at=now,
+                        payload={
+                            "run_id": revision_run_id,
+                            "branch_id": run.branch_id,
+                            "executor_key": run.executor_key,
+                            "supersedes_run_id": delivery.run_id,
+                        },
+                    ),
+                    EventDraft(
+                        stream_type="thread",
+                        stream_id=delivery.thread_id,
+                        project_id=projection.project_id,
+                        thread_id=delivery.thread_id,
+                        branch_id=run.branch_id,
+                        run_id=revision_run_id,
+                        correlation_id=correlation_id,
+                        event_type="run.snapshots_bound",
+                        actor="delivery-revision-compiler",
+                        occurred_at=now,
+                        payload={
+                            "run_id": revision_run_id,
+                            "task_snapshot_id": revision_task_snapshot_id,
+                            "agent_snapshot_id": revision_agent_snapshot_id,
+                            "context_manifest_id": revision_context_manifest_id,
+                        },
+                    ),
+                    EventDraft(
+                        stream_type="thread",
+                        stream_id=delivery.thread_id,
+                        project_id=projection.project_id,
+                        thread_id=delivery.thread_id,
+                        branch_id=run.branch_id,
+                        run_id=revision_run_id,
+                        correlation_id=correlation_id,
+                        event_type="run.state_changed",
+                        actor="scheduler",
+                        occurred_at=now,
+                        payload={
+                            "run_id": revision_run_id,
+                            "from": RunState.CREATED.value,
+                            "to": RunState.QUEUED.value,
+                        },
+                    ),
+                    EventDraft(
+                        stream_type="thread",
+                        stream_id=delivery.thread_id,
+                        project_id=projection.project_id,
+                        thread_id=delivery.thread_id,
+                        branch_id=run.branch_id,
+                        run_id=revision_run_id,
+                        correlation_id=correlation_id,
+                        event_type="thread.state_changed",
+                        actor="scheduler",
+                        occurred_at=now,
+                        payload={
+                            "from": ThreadState.DELIVERED.value,
+                            "to": ThreadState.QUEUED.value,
+                            "reason": "delivery_revision_requested",
+                        },
+                    ),
+                    EventDraft(
+                        stream_type="thread",
+                        stream_id=delivery.thread_id,
+                        project_id=projection.project_id,
+                        thread_id=delivery.thread_id,
+                        branch_id=run.branch_id,
+                        run_id=revision_run_id,
+                        correlation_id=correlation_id,
+                        event_type="thread.attention_changed",
+                        actor=actor,
+                        occurred_at=now,
+                        payload={
+                            "from": AttentionState.DELIVERY_READY.value,
+                            "to": AttentionState.NONE.value,
+                            "reason": "revision_run_enqueued",
+                        },
+                    ),
+                )
+                for draft in thread_drafts:
+                    projection = reduce_thread(projection, self._insert_event(connection, draft))
+                self._upsert_thread_projection(connection, projection)
+                connection.execute(
+                    """
+                    INSERT INTO scheduler_jobs(
+                        run_id, thread_id, executor_key, state, priority, available_at,
+                        attempts, max_attempts, fencing_token, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, 0, ?, ?)
+                    """,
+                    (
+                        revision_run_id,
+                        delivery.thread_id,
+                        run.executor_key,
+                        JobState.QUEUED.value,
+                        int(prior_job["priority"]),
+                        now,
+                        int(prior_job["max_attempts"]),
+                        now,
+                        now,
+                    ),
+                )
+                self._insert_event(
+                    connection,
+                    EventDraft(
+                        stream_type="scheduler-run",
+                        stream_id=revision_run_id,
+                        project_id=projection.project_id,
+                        thread_id=delivery.thread_id,
+                        branch_id=run.branch_id,
+                        run_id=revision_run_id,
+                        correlation_id=correlation_id,
+                        causation_id=decision_event.event_id,
+                        event_type="scheduler.run_enqueued",
+                        actor="scheduler",
+                        occurred_at=now,
+                        payload={
+                            "priority": int(prior_job["priority"]),
+                            "available_at": now,
+                            "max_attempts": int(prior_job["max_attempts"]),
+                            "executor_key": run.executor_key,
+                            "supersedes_run_id": delivery.run_id,
+                        },
+                    ),
+                )
+                revision_event = self._insert_event(
+                    connection,
+                    EventDraft(
+                        stream_type="delivery",
+                        stream_id=delivery.delivery_id,
+                        project_id=projection.project_id,
+                        thread_id=delivery.thread_id,
+                        branch_id=run.branch_id,
+                        run_id=delivery.run_id,
+                        correlation_id=correlation_id,
+                        causation_id=decision_event.event_id,
+                        event_type="delivery.revision_run_created",
+                        actor="runtime",
+                        occurred_at=now,
+                        payload={
+                            "delivery_id": delivery.delivery_id,
+                            "revision_run_id": revision_run_id,
+                            "task_snapshot_id": revision_task_snapshot_id,
+                            "agent_snapshot_id": revision_agent_snapshot_id,
+                            "context_manifest_id": revision_context_manifest_id,
+                        },
+                    ),
+                )
+                reduce_delivery(reduced_delivery, revision_event)
+                revision_job_row = connection.execute(
+                    "SELECT * FROM scheduler_jobs WHERE run_id = ?",
+                    (revision_run_id,),
+                ).fetchone()
+                assert revision_job_row is not None
+                revision_job = self._row_to_job(revision_job_row)
+            else:
+                if decision == DeliveryDecisionType.TAKE_OVER:
+                    desired_event = self._insert_event(
+                        connection,
+                        EventDraft(
+                            stream_type="thread",
+                            stream_id=delivery.thread_id,
+                            project_id=projection.project_id,
+                            thread_id=delivery.thread_id,
+                            branch_id=run.branch_id,
+                            run_id=delivery.run_id,
+                            correlation_id=correlation_id,
+                            causation_id=decision_event.event_id,
+                            event_type="thread.desired_state_changed",
+                            actor=actor,
+                            occurred_at=now,
+                            payload={
+                                "from": projection.desired_state.value,
+                                "to": DesiredState.PAUSE.value,
+                                "reason": "owner_took_over",
+                            },
+                        ),
+                    )
+                    projection = reduce_thread(projection, desired_event)
+                attention_event = self._insert_event(
+                    connection,
+                    EventDraft(
+                        stream_type="thread",
+                        stream_id=delivery.thread_id,
+                        project_id=projection.project_id,
+                        thread_id=delivery.thread_id,
+                        branch_id=run.branch_id,
+                        run_id=delivery.run_id,
+                        correlation_id=correlation_id,
+                        causation_id=decision_event.event_id,
+                        event_type="thread.attention_changed",
+                        actor=actor,
+                        occurred_at=now,
+                        payload={
+                            "from": AttentionState.DELIVERY_READY.value,
+                            "to": AttentionState.NONE.value,
+                            "reason": f"delivery_{decision.value}",
+                        },
+                    ),
+                )
+                projection = reduce_thread(projection, attention_event)
+                self._upsert_thread_projection(connection, projection)
+
+            stored_delivery = connection.execute(
+                "SELECT * FROM deliveries WHERE delivery_id = ?",
+                (delivery.delivery_id,),
+            ).fetchone()
+            stored_decision = connection.execute(
+                "SELECT * FROM delivery_decisions WHERE delivery_id = ?",
+                (delivery.delivery_id,),
+            ).fetchone()
+            assert stored_delivery is not None and stored_decision is not None
+            return (
+                self._row_to_delivery(stored_delivery),
+                self._row_to_delivery_decision(stored_decision),
+                projection,
+                revision_job,
+            )
 
     def list_deliveries(
         self,
@@ -4674,6 +5178,24 @@ class SQLiteRuntimeRepository:
             created_at=str(row["created_at"]),
             presented_at=row["presented_at"],
             decided_at=row["decided_at"],
+            decision_id=row["decision_id"],
+            decision_artifact_id=row["decision_artifact_id"],
+            decision_actor=row["decision_actor"],
+            revision_run_id=row["revision_run_id"],
+        )
+
+    def _row_to_delivery_decision(self, row: sqlite3.Row) -> DeliveryDecisionRecord:
+        return DeliveryDecisionRecord(
+            decision_id=str(row["decision_id"]),
+            delivery_id=str(row["delivery_id"]),
+            thread_id=str(row["thread_id"]),
+            run_id=str(row["run_id"]),
+            decision=DeliveryDecisionType(str(row["decision"])),
+            actor=str(row["actor"]),
+            decision_artifact_id=str(row["decision_artifact_id"]),
+            idempotency_key=str(row["idempotency_key"]),
+            revision_run_id=row["revision_run_id"],
+            created_at=str(row["created_at"]),
         )
 
     def _row_to_outbox(self, row: sqlite3.Row) -> OutboxItem:

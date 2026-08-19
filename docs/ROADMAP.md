@@ -9,15 +9,17 @@ expanding autonomy.
 The accepted Alpha Golden Path is **Source to Inspectable Artifact**. This is a
 scope decision awaiting interview and Pilot evidence, not a validation result.
 
-Engineering proceeds in the accepted `V2-001 -> V2-007` order. V2-001 through V2-006
-have test-backed implementations in the convergence branch. V2-007 Delivery decisions
-remain next; each slice must pass its own acceptance criteria before promotion.
+Engineering proceeds in the accepted `V2-001 -> V2-007` order. V2-001 through V2-007
+now have test-backed Alpha implementations. The next product-facing slice is the local
+Control Room; channel dispatch, publication, and credential-backed Feishu validation
+remain independent gates.
 
 - [V2 product and engineering direction](V2_PRODUCT_ENGINEERING_DIRECTION.md)
 - [V2 Runtime Contract](V2_RUNTIME_CONTRACT.md)
 - [Feishu Memory and Knowledge System v0.1](FEISHU_KNOWLEDGE_SYSTEM_SPEC_V0.1.md)
 - [V2-002 Durable Product Approvals](V2_002_DURABLE_PRODUCT_APPROVALS.md)
 - [V2-003 Durable Thread Updates](V2_003_DURABLE_THREAD_UPDATES.md)
+- [V2-007 Replayable Delivery Decisions](V2_007_DELIVERY_DECISIONS.md)
 
 The implementation order is determined by the product loop, not by the number
 of available channels, tools, or model Providers.
@@ -62,8 +64,8 @@ Exit: every real message uses the same state and governance boundary.
 - [x] Add a versioned DecisionRecordVerifier result for
       evidence, citation, permission, sensitivity, freshness, and actionability
 - [x] Atomically finalize scheduler, Run, Thread, Delivery, Attention, and Outbox
-- [ ] Persist `accept`, `revise`, `reject`, `defer`, and `take over` decisions
-- [ ] Create a new immutable Run/Delivery version after a revision request
+- [x] Persist `accept`, `revise`, `reject`, `defer`, and `take over` decisions
+- [x] Create a new immutable Run/Delivery version after a revision request
 - [ ] Publish an accepted record to a Feishu Wiki draft only through durable
       Approval and `Intent -> Claim -> provider -> Receipt`
 

@@ -1,6 +1,6 @@
 # CoPenguin V2 Runtime Contract
 
-Status: implementation active; V2-001 through V2-006 have test-backed Alpha slices, V2-007 next
+Status: implementation active; V2-001 through V2-007 have test-backed Alpha slices
 
 Accepted product theme: Trusted Closure
 
@@ -328,6 +328,11 @@ One transaction writes:
 One transaction writes the user decision. `REVISION_REQUESTED` also creates a
 new Run linked to the prior Delivery and freezes a new TaskSnapshot containing
 the requested change. It does not edit the old snapshots.
+
+V2-007 implements this contract with a separate Delivery event reducer,
+idempotent decision-evidence Artifact, schema migration v9, immutable revision
+ContextManifest, scheduler enqueue, and rollback injection. See
+[V2-007 Replayable Delivery Decisions](V2_007_DELIVERY_DECISIONS.md).
 
 ## 6. Hook contract
 

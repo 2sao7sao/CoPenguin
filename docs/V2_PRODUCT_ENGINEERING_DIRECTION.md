@@ -1,6 +1,6 @@
 # CoPenguin V2 产品与工程优化方向
 
-状态：产品方向与 `V2-001 -> V2-007` 工程实施顺序已确认；V2-001 至 V2-006 已完成测试级验收
+状态：产品方向与 `V2-001 -> V2-007` 工程实施顺序已确认；V2-001 至 V2-007 已完成测试级验收
 
 版本主题：**Trusted Closure / 可信闭环**
 
@@ -25,8 +25,9 @@ CoPenguin 当前最大的优点与最大的问题是同一件事：
 事件日志、Thread/Run replay、scheduler fencing、Artifact CAS、Intent/Receipt、
 持久审批等基础原语已经存在。初始审计发现飞书和 `/computer` 仍绕过这些原语；V2-001
 已统一 Ingress，V2-002 已统一电脑动作的 Approval 与 Receipt，V2-003 已让 Thread 更新、
-方法分支、取消与歧义确认进入持久主链；V2-004 至 V2-006 已补齐有界 Worker、Step、
-Verifier 与原子 Delivery/Outbox。用户对 Delivery 的决定闭环仍待 V2-007 完成。
+方法分支、取消与歧义确认进入持久主链；V2-004 至 V2-007 已补齐有界 Worker、Step、
+Verifier、原子 Delivery/Outbox 与可 replay 的用户决定。真实渠道发送、发布和本地控制界面
+仍需后续切片完成。
 
 因此，V2 不应以“更多工具、更强模型、自动自我进化”为目标，而应完成一条可以实际使用、
 可以中断恢复、可以验证结果、可以积累信任的主链：
@@ -71,11 +72,11 @@ V2 的一句话定位建议是：
 | --- | --- | --- | --- |
 | 事件与 replay | Implemented | append-only journal、纯 reducer、projection hash | 缺少 event upcaster、完整迁移和启动时一致性审计 |
 | Thread 隔离 | Implemented | Project → TaskThread → Run；同 Thread single-writer；方法变更 fork/select Branch | merge/reject 产品决策仍待后续交付流 |
-| 并发调度 | Partial | queue、claim、heartbeat、retry、lease、fencing | 没有常驻 Worker Host；scheduler 终态未与 Run/Delivery 原子提交 |
+| 并发调度 | Implemented/Alpha | 有界 Worker Host、queue、claim、heartbeat、retry、lease、fencing | 常驻进程运维、多进程 chaos 与规模验证仍待完成 |
 | Context 冻结 | Implemented | 新任务入口绑定 Task/Agent/Context snapshot + CAS | Memory/KB snapshot 仍是空引用 |
 | Inbox 路由 | Implemented | 飞书/本地统一路由；Thread update、候选、owner confirmation/correction/expiry 与取消均持久 | 交互卡片和已提交路线的补偿式纠正待 V2-009 |
 | 外部动作治理 | Partial | `/computer` 已接入 durable Intent/Approval/claim/Receipt | 暂由 compatibility gateway inline 执行；缺少 Worker Host 与 Provider reconciler |
-| 交付 | Specified/Partial | `delivery.recorded` 原语 | 没有 verifier、交付版本、用户决定、修改后新 Run 和结果通知 |
+| 交付 | Implemented/Alpha | Verifier、版本化 Delivery、原子 Outbox、五种用户决定、不可变 revision Run | 渠道 dispatcher、发送 Receipt、发布 Approval/Provider 与 Control Room UI 尚未完成 |
 | 记忆 | Partial | EvolveMemory adapter | 当前 scope 主要是 `platform:actor`；没有产品层审阅、纠正、忘记和“待推理画像”状态 |
 | 知识与技能 | Partial | EvolveKB adapter | Run 未绑定实际 KB/Skill snapshot；使用结果不会形成受治理提案链 |
 | Hook | Specified | AgentSnapshot 已预留 `hook_registry_snapshot_id` | 没有 Registry、调用协议、失败策略、trace 和权限边界 |
@@ -575,11 +576,11 @@ flowchart TB
 | V2-004 ✅ | Worker Host + Executor Protocol | 至少一个 source-to-artifact workflow 可从 queue 自动完成 |
 | V2-005 ✅ | Step + Verifier | 每个模型/工具/验证操作有状态、Artifact 与 causal trace |
 | V2-006 ✅ | 原子 `finalize_run` | scheduler、Run、Thread、Delivery、Attention 和 outbox 无分裂终态 |
-| V2-007 | Delivery decision | accept/revise/reject/defer/takeover 可持久、可 replay；revise 创建新 Run |
+| V2-007 ✅ | Delivery decision | accept/revise/reject/defer/takeover 可持久、可 replay；revise 创建新 Run |
 
 首个 workflow 已收敛为“一个明确选择的飞书来源 → 可检查的项目决策记录”。V2-005 对应的
 首个 Verifier 必须检查 evidence、citation、permission、sensitivity、freshness 与 actionability；
-V2-007 接受后仍需 durable Approval，才能通过 `Intent -> Claim -> provider -> Receipt` 发布到
+V2-007 已记录接受决定；接受后仍需 durable Approval，才能通过 `Intent -> Claim -> provider -> Receipt` 发布到
 飞书 Wiki 草稿目录。完整边界见
 [飞书记忆与知识系统规格 v0.1](FEISHU_KNOWLEDGE_SYSTEM_SPEC_V0.1.md)。
 
@@ -698,5 +699,6 @@ V2 只有同时满足产品闭环和 Runtime 闭环才算完成。
 7. Self-loop 在 V2 只打开 ReviewCase 和 remediation proposal；
 8. 自动晋升与 L3 自治继续保持关闭，直到 Pilot 与独立评估门通过。
 
-工程实施已在收敛分支完成 `V2-001` → `V2-006` 的测试级验收，下一切片是 `V2-007`；
-在 Delivery 的接受、修改、拒绝、延后和接管决定完成前，CoPenguin 仍不能声称完整产品闭环。
+工程实施已完成 `V2-001` → `V2-007` 的测试级验收，下一切片是 `V2-008` 本地 Control Room。
+当前可以声称 Alpha Runtime 已形成可 replay 的交付决定闭环，但在真实渠道 dispatcher、发送
+Receipt、发布 Approval/Provider、认证界面和 Pilot 完成前，仍不能声称完整产品或飞书发布闭环。

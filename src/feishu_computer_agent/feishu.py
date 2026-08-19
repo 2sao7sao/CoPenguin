@@ -9,7 +9,7 @@ from typing import Any, Protocol
 
 import httpx
 
-from super_agent_runtime import IngressAdapter
+from super_agent_runtime import DeliveryDecisionService, DeliveryDecisionType, IngressAdapter
 
 from .agent import PrivateAssistantAgent
 from .config import Settings
@@ -26,6 +26,15 @@ class FeishuChallenge:
     challenge: str
 
 
+@dataclass(frozen=True)
+class FeishuDeliveryDecision:
+    message: InboundMessage
+    delivery_id: str
+    decision: DeliveryDecisionType
+    idempotency_key: str
+    revision_request: str | None = None
+
+
 class OutboundMessenger(Protocol):
     async def send_text(self, *, chat_id: str, text: str) -> None: ...
 
@@ -35,6 +44,14 @@ class OutboundMessenger(Protocol):
         chat_id: str,
         text: str,
         approval_id: str,
+    ) -> None: ...
+
+    async def send_delivery_card(
+        self,
+        *,
+        chat_id: str,
+        text: str,
+        delivery_id: str,
     ) -> None: ...
 
 
@@ -184,9 +201,9 @@ class FeishuEventParser:
 
 
 class FeishuCardActionParser:
-    """Turn one signed Feishu approval-card action into a normal control message."""
+    """Parse signed approval and Delivery card actions without executing them."""
 
-    _APPROVAL_ID = re.compile(r"^[A-Za-z0-9_-]+$")
+    _ENTITY_ID = re.compile(r"^[A-Za-z0-9_-]+$")
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
@@ -197,7 +214,7 @@ class FeishuCardActionParser:
         payload: dict[str, Any],
         *,
         trusted_long_connection: bool = False,
-    ) -> InboundMessage:
+    ) -> InboundMessage | FeishuDeliveryDecision:
         header = payload.get("header") or {}
         event = payload.get("event") or {}
         if not isinstance(header, dict) or not isinstance(event, dict):
@@ -219,31 +236,78 @@ class FeishuCardActionParser:
         if not isinstance(context, dict):
             raise FeishuPayloadError("Malformed Feishu card context.")
         value = action.get("value") or {}
-        if not isinstance(value, dict) or value.get("schema") != "copenguin.approval.v1":
+        if not isinstance(value, dict):
             raise FeishuPayloadError("Unsupported Feishu card action schema.")
-        decision = str(value.get("decision") or "").lower()
-        if decision not in {"approve", "deny"}:
-            raise FeishuPayloadError("Card decision must be approve or deny.")
-        approval_id = str(value.get("approval_id") or "")
-        if not self._APPROVAL_ID.fullmatch(approval_id):
-            raise FeishuPayloadError("Card approval id is invalid.")
         open_id = str(operator.get("open_id") or "")
         chat_id = str(context.get("open_chat_id") or "")
         event_id = str(header.get("event_id") or "")
         open_message_id = str(context.get("open_message_id") or "")
-        message_id = event_id or (f"card-{open_message_id}-{approval_id}-{decision}-{open_id}")
-        if not open_id or not chat_id or not message_id:
+        if not open_id or not chat_id:
             raise FeishuPayloadError("Card callback identity and chat context are required.")
-        return InboundMessage(
+        schema = value.get("schema")
+        if schema == "copenguin.approval.v1":
+            decision = str(value.get("decision") or "").lower()
+            if decision not in {"approve", "deny"}:
+                raise FeishuPayloadError("Card decision must be approve or deny.")
+            approval_id = str(value.get("approval_id") or "")
+            if not self._ENTITY_ID.fullmatch(approval_id):
+                raise FeishuPayloadError("Card approval id is invalid.")
+            message_id = event_id or (f"card-{open_message_id}-{approval_id}-{decision}-{open_id}")
+            if not message_id:
+                raise FeishuPayloadError("Card callback identity and chat context are required.")
+            return InboundMessage(
+                platform="feishu",
+                message_id=message_id,
+                chat_id=chat_id,
+                chat_type=ChatType.DIRECT,
+                sender_open_id=open_id,
+                sender_union_id=operator.get("union_id"),
+                text=f"/{decision} {approval_id}",
+                raw=payload,
+                created_at=self._message_parser._parse_create_time(header.get("create_time")),
+            )
+
+        if schema != "copenguin.delivery.v1":
+            raise FeishuPayloadError("Unsupported Feishu card action schema.")
+        delivery_id = str(value.get("delivery_id") or "")
+        if not self._ENTITY_ID.fullmatch(delivery_id):
+            raise FeishuPayloadError("Card Delivery id is invalid.")
+        try:
+            delivery_decision = DeliveryDecisionType(str(value.get("decision") or "").lower())
+        except ValueError as exc:
+            raise FeishuPayloadError("Unsupported Delivery decision.") from exc
+        form_value = action.get("form_value") or event.get("form_value") or {}
+        if not isinstance(form_value, dict):
+            raise FeishuPayloadError("Malformed Feishu card form values.")
+        revision_request = str(
+            value.get("revision_request") or form_value.get("revision_request") or ""
+        ).strip()
+        if delivery_decision == DeliveryDecisionType.REVISE and not revision_request:
+            raise FeishuPayloadError("A revision request is required before choosing revise.")
+        if len(revision_request) > DeliveryDecisionService.max_text_length:
+            raise FeishuPayloadError("The revision request is too long.")
+        message_id = event_id or (
+            f"card-{open_message_id}-{delivery_id}-{delivery_decision.value}-{open_id}"
+        )
+        if not message_id:
+            raise FeishuPayloadError("Card callback identity and chat context are required.")
+        message = InboundMessage(
             platform="feishu",
             message_id=message_id,
             chat_id=chat_id,
             chat_type=ChatType.DIRECT,
             sender_open_id=open_id,
             sender_union_id=operator.get("union_id"),
-            text=f"/{decision} {approval_id}",
+            text=f"/delivery {delivery_decision.value} {delivery_id}",
             raw=payload,
             created_at=self._message_parser._parse_create_time(header.get("create_time")),
+        )
+        return FeishuDeliveryDecision(
+            message=message,
+            delivery_id=delivery_id,
+            decision=delivery_decision,
+            idempotency_key=f"feishu:{message_id}",
+            revision_request=revision_request or None,
         )
 
 
@@ -272,6 +336,19 @@ class FeishuMessenger:
             chat_id=chat_id,
             msg_type="interactive",
             content=self.approval_card(text=text, approval_id=approval_id),
+        )
+
+    async def send_delivery_card(
+        self,
+        *,
+        chat_id: str,
+        text: str,
+        delivery_id: str,
+    ) -> None:
+        await self._send_message(
+            chat_id=chat_id,
+            msg_type="interactive",
+            content=self.delivery_card(text=text, delivery_id=delivery_id),
         )
 
     def approval_card(self, *, text: str, approval_id: str) -> dict[str, Any]:
@@ -313,6 +390,53 @@ class FeishuMessenger:
                                 "approval_id": approval_id,
                             },
                         },
+                    ],
+                },
+            ],
+        }
+
+    def delivery_card(self, *, text: str, delivery_id: str) -> dict[str, Any]:
+        def button(
+            label: str,
+            decision: DeliveryDecisionType,
+            *,
+            button_type: str = "default",
+        ) -> dict[str, Any]:
+            return {
+                "tag": "button",
+                "text": {"tag": "plain_text", "content": label},
+                "type": button_type,
+                "value": {
+                    "schema": "copenguin.delivery.v1",
+                    "decision": decision.value,
+                    "delivery_id": delivery_id,
+                },
+            }
+
+        return {
+            "config": {"wide_screen_mode": True},
+            "header": {
+                "template": "blue",
+                "title": {"tag": "plain_text", "content": "CoPenguin Delivery review"},
+            },
+            "elements": [
+                {"tag": "markdown", "content": text[:3000]},
+                {
+                    "tag": "input",
+                    "name": "revision_request",
+                    "placeholder": {
+                        "tag": "plain_text",
+                        "content": "Describe the change before choosing Revise",
+                    },
+                },
+                {
+                    "tag": "action",
+                    "actions": [
+                        button("Accept", DeliveryDecisionType.ACCEPT, button_type="primary"),
+                        button("Revise", DeliveryDecisionType.REVISE),
+                        button("Reject", DeliveryDecisionType.REJECT, button_type="danger"),
+                        button("Later", DeliveryDecisionType.DEFER),
+                        button("Take over", DeliveryDecisionType.TAKE_OVER),
                     ],
                 },
             ],
@@ -376,6 +500,7 @@ class FeishuWebhookService:
         ingress: IngressAdapter,
         messenger: OutboundMessenger,
         card_parser: FeishuCardActionParser | None = None,
+        delivery_decisions: DeliveryDecisionService | None = None,
     ) -> None:
         self._parser = parser
         self._access = access
@@ -383,6 +508,7 @@ class FeishuWebhookService:
         self._ingress = ingress
         self._messenger = messenger
         self._card_parser = card_parser
+        self._delivery_decisions = delivery_decisions
 
     async def handle_payload(
         self,
@@ -451,21 +577,46 @@ class FeishuWebhookService:
             payload,
             trusted_long_connection=trusted_long_connection,
         )
-        if not self._access.is_allowed(parsed):
+        message = parsed.message if isinstance(parsed, FeishuDeliveryDecision) else parsed
+        if not self._access.is_allowed(message):
             return {"toast": {"type": "error", "content": "This actor cannot decide the action."}}
         ingress = self._ingress.receive(
-            message_id=parsed.message_id,
-            chat_id=parsed.chat_id,
-            actor_id=parsed.actor_id,
-            text=parsed.text,
-            created_at=parsed.created_at.astimezone(UTC)
+            message_id=message.message_id,
+            chat_id=message.chat_id,
+            actor_id=message.actor_id,
+            text=message.text,
+            created_at=message.created_at.astimezone(UTC)
             .isoformat(timespec="microseconds")
             .replace("+00:00", "Z"),
         )
+        if isinstance(parsed, FeishuDeliveryDecision):
+            if self._delivery_decisions is None:
+                raise FeishuPayloadError("Delivery decisions are not configured.")
+            existing = self._delivery_decisions.repository.find_delivery_decision(
+                idempotency_key=parsed.idempotency_key
+            )
+            if ingress.duplicate and existing is not None:
+                return {"toast": {"type": "info", "content": "Decision already recorded."}}
+            result = self._delivery_decisions.decide(
+                parsed.delivery_id,
+                decision=parsed.decision,
+                actor=message.actor_id,
+                idempotency_key=parsed.idempotency_key,
+                revision_request=parsed.revision_request,
+            )
+            return {
+                "toast": {
+                    "type": "success",
+                    "content": f"Delivery {parsed.decision.value} recorded.",
+                },
+                "delivery_id": result.delivery.delivery_id,
+                "decision_id": result.decision.decision_id,
+                "revision_run_id": result.decision.revision_run_id,
+            }
         if ingress.duplicate:
             return {"toast": {"type": "info", "content": "Decision already recorded."}}
-        reply = await self._agent.handle(parsed, inbox_record=ingress.record)
+        reply = await self._agent.handle(message, inbox_record=ingress.record)
         if reply.text:
-            await self._messenger.send_text(chat_id=parsed.chat_id, text=reply.text)
+            await self._messenger.send_text(chat_id=message.chat_id, text=reply.text)
         toast_type = "success" if reply.observation is not None else "info"
         return {"toast": {"type": toast_type, "content": reply.text[:120]}}

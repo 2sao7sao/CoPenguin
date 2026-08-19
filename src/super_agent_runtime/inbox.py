@@ -109,7 +109,8 @@ class ConservativeInboxRouter:
     """Deterministic first-pass router that avoids treating every chat as a task."""
 
     _control = re.compile(
-        r"^/(status|approve|deny|pause|resume|cancel|archive|route)(?:\s|$)", re.IGNORECASE
+        r"^/(status|approve|deny|pause|resume|cancel|archive|route|delivery)(?:\s|$)",
+        re.IGNORECASE,
     )
     _thread = re.compile(r"^/thread\s+([A-Za-z0-9_-]+)(?:\s+(.*))?$", re.IGNORECASE)
     _new_task = re.compile(r"^/(task|do|computer)\s+(.+)$", re.IGNORECASE | re.DOTALL)

@@ -89,6 +89,15 @@ def test_runtime_exposes_verified_steps_delivery_and_outbox(tmp_path) -> None:
     )
     detail = client.get(f"/runtime/deliveries/{result.delivery_id}")
     presented = client.post(f"/runtime/deliveries/{result.delivery_id}/present")
+    decided = client.post(
+        f"/runtime/deliveries/{result.delivery_id}/decision",
+        json={
+            "decision": "accept",
+            "actor_id": "owner",
+            "idempotency_key": "local-api:accept:1",
+            "reason": "Reviewed in the local control plane.",
+        },
+    )
     outbox = client.get("/runtime/outbox", params={"state": "pending"})
 
     assert steps.status_code == 200
@@ -96,6 +105,10 @@ def test_runtime_exposes_verified_steps_delivery_and_outbox(tmp_path) -> None:
     assert deliveries.json()["deliveries"][0]["state"] == "prepared"
     assert detail.json()["delivery"]["primary_artifact_id"] == result.output_artifact_id
     assert presented.json()["delivery"]["state"] == "presented"
+    assert decided.status_code == 200
+    assert decided.json()["delivery"]["state"] == "accepted"
+    assert decided.json()["delivery_replay_verified"] is True
+    assert decided.json()["thread_replay_verified"] is True
     assert len(outbox.json()["items"]) == 1
 
 
@@ -211,6 +224,22 @@ def test_local_ingress_endpoint_rejects_non_loopback_clients(tmp_path) -> None:
 
     assert response.status_code == 403
     assert app.state.runtime.list_inbox_records() == []
+
+
+def test_delivery_decision_endpoint_rejects_non_loopback_clients(tmp_path) -> None:
+    app = create_app(Settings(data_dir=tmp_path, memory_enabled=False, knowledge_enabled=False))
+    client = TestClient(app, client=("203.0.113.9", 50000))
+
+    response = client.post(
+        "/runtime/deliveries/missing/decision",
+        json={
+            "decision": "accept",
+            "actor_id": "owner",
+            "idempotency_key": "remote:decision:1",
+        },
+    )
+
+    assert response.status_code == 403
 
 
 def test_local_route_decision_applies_ambiguous_message_exactly_once(tmp_path) -> None:

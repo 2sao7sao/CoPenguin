@@ -6,6 +6,7 @@ from feishu_computer_agent.config import Settings
 from feishu_computer_agent.feishu import (
     FeishuCardActionParser,
     FeishuChallenge,
+    FeishuDeliveryDecision,
     FeishuEventParser,
     FeishuMessenger,
     FeishuPayloadError,
@@ -198,3 +199,76 @@ def test_approval_card_binds_both_buttons_to_exact_approval() -> None:
     assert [action["value"]["decision"] for action in actions] == ["approve", "deny"]
     assert {action["value"]["approval_id"] for action in actions} == {"approval-123"}
     assert {action["value"]["schema"] for action in actions} == {"copenguin.approval.v1"}
+
+
+def test_parse_delivery_revision_card_with_bounded_form_input() -> None:
+    parser = FeishuCardActionParser(Settings(feishu_verification_token="token"))
+
+    parsed = parser.parse(
+        {
+            "header": {"event_id": "delivery-card-1", "create_time": "1786608000000"},
+            "event": {
+                "token": "token",
+                "operator": {"open_id": "ou_owner", "union_id": "on_owner"},
+                "context": {"open_chat_id": "oc_owner", "open_message_id": "om_delivery"},
+                "action": {
+                    "value": {
+                        "schema": "copenguin.delivery.v1",
+                        "decision": "revise",
+                        "delivery_id": "delivery-123",
+                    },
+                    "form_value": {"revision_request": "Clarify the owner and due date."},
+                },
+            },
+        }
+    )
+
+    assert isinstance(parsed, FeishuDeliveryDecision)
+    assert parsed.delivery_id == "delivery-123"
+    assert parsed.decision.value == "revise"
+    assert parsed.revision_request == "Clarify the owner and due date."
+    assert parsed.idempotency_key == "feishu:delivery-card-1"
+    assert parsed.message.actor_id == "on_owner"
+    assert parsed.message.text == "/delivery revise delivery-123"
+
+
+def test_delivery_revision_card_rejects_missing_request() -> None:
+    parser = FeishuCardActionParser(Settings(feishu_verification_token="token"))
+
+    with pytest.raises(FeishuPayloadError, match="revision request is required"):
+        parser.parse(
+            {
+                "header": {"event_id": "delivery-card-1"},
+                "event": {
+                    "token": "token",
+                    "operator": {"open_id": "ou_owner"},
+                    "context": {"open_chat_id": "oc_owner"},
+                    "action": {
+                        "value": {
+                            "schema": "copenguin.delivery.v1",
+                            "decision": "revise",
+                            "delivery_id": "delivery-123",
+                        }
+                    },
+                },
+            }
+        )
+
+
+def test_delivery_card_binds_all_owner_decisions_to_exact_delivery() -> None:
+    card = FeishuMessenger(Settings()).delivery_card(
+        text="Review this verified Artifact.",
+        delivery_id="delivery-123",
+    )
+
+    assert card["elements"][1]["name"] == "revision_request"
+    actions = card["elements"][2]["actions"]
+    assert [action["value"]["decision"] for action in actions] == [
+        "accept",
+        "revise",
+        "reject",
+        "defer",
+        "take_over",
+    ]
+    assert {action["value"]["delivery_id"] for action in actions} == {"delivery-123"}
+    assert {action["value"]["schema"] for action in actions} == {"copenguin.delivery.v1"}

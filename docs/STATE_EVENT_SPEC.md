@@ -164,6 +164,18 @@ Approval stream:
 - `approval.denied`
 - `approval.expired`
 
+Delivery stream:
+
+- `delivery.prepared`
+- `delivery.presented`
+- `delivery.decision_recorded`
+- `delivery.revision_run_created`
+- `delivery.notification_enqueued`
+
+The Delivery projection has an independent pure reducer. A decision requires a
+presented Delivery and can occur once; revision preserves the prior version and
+atomically creates a new snapshot-bound Run.
+
 ## Snapshot binding
 
 Before a Run starts, `run.snapshots_bound` freezes three Artifact CAS references:
@@ -221,6 +233,8 @@ While any Approval for a Thread is pending, its attention projection is
     fencing token are current.
 11. A Run cannot start before Task, Agent, and Context snapshot references are
     bound.
+12. A Delivery decision is idempotent, replayable, and cannot mutate the
+    completed Run or replace the prior Delivery Artifact.
 
 ## Multi-link, shared-history model
 
@@ -229,8 +243,9 @@ logical views over one event journal. They are connected by stable aggregate
 ids plus `correlation_id` and `causation_id`. A UI can therefore show a simple
 conversation timeline while an audit view follows the exact causal chain.
 
-Future Branch events will add `forked_from_event_id` and
-`base_snapshot_hash`. Future artifact events will use immutable CAS references.
+Branch events include `forked_from_event_id` and `base_snapshot_hash`; Delivery
+revision events link the new Run to the prior Delivery and Run. Artifact events
+use immutable CAS references.
 
 ## Crash recovery rule
 
