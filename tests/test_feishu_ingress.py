@@ -4,9 +4,20 @@ import json
 
 from fastapi.testclient import TestClient
 
+from copenguin.demo import DEFAULT_SOURCE
 from feishu_computer_agent.config import Settings
 from feishu_computer_agent.server import create_app
-from super_agent_runtime import ActionStatus, ApprovalState, ReceiptOutcome
+from super_agent_runtime import (
+    ActionStatus,
+    ApprovalState,
+    DecisionRecordVerifier,
+    DeliveryState,
+    ReceiptOutcome,
+    SourceSnapshotBinding,
+    SourceToArtifactExecutor,
+    WorkerHost,
+    WorkerHostConfig,
+)
 
 
 def _payload(
@@ -62,6 +73,40 @@ def _card_payload(*, approval_id: str, decision: str = "approve") -> dict[str, o
                     "approval_id": approval_id,
                 }
             },
+        },
+    }
+
+
+def _delivery_card_payload(
+    *,
+    delivery_id: str,
+    decision: str = "accept",
+    revision_request: str | None = None,
+) -> dict[str, object]:
+    action: dict[str, object] = {
+        "value": {
+            "schema": "copenguin.delivery.v1",
+            "decision": decision,
+            "delivery_id": delivery_id,
+        }
+    }
+    if revision_request is not None:
+        action["form_value"] = {"revision_request": revision_request}
+    return {
+        "schema": "2.0",
+        "header": {
+            "event_id": f"delivery-card-{decision}-{delivery_id}",
+            "event_type": "card.action.trigger",
+            "create_time": "1786608000000",
+        },
+        "event": {
+            "token": "token",
+            "operator": {"open_id": "ou_owner"},
+            "context": {
+                "open_chat_id": "oc_owner",
+                "open_message_id": "om_delivery_card",
+            },
+            "action": action,
         },
     }
 
@@ -180,6 +225,57 @@ def test_feishu_approval_card_uses_same_durable_decision_path(tmp_path) -> None:
     assert intent.status == ActionStatus.SUCCEEDED
     receipts = app.state.runtime.list_action_receipts(intent_id=intent.intent_id)
     assert len(receipts) == 1
+
+
+def test_feishu_delivery_card_uses_replayable_delivery_decision_path(tmp_path) -> None:
+    settings = Settings(
+        data_dir=tmp_path,
+        memory_enabled=False,
+        knowledge_enabled=False,
+        feishu_verification_token="token",
+        feishu_allowed_open_ids=frozenset({"ou_owner"}),
+    )
+    app = create_app(settings)
+    source = app.state.artifacts.put_json(DEFAULT_SOURCE, kind="feishu_delivery_source")
+    submitted = app.state.source_tasks.submit(
+        project_id="work",
+        objective="Create an inspectable decision record",
+        sources=(
+            SourceSnapshotBinding(
+                source_snapshot_id="feishu-delivery-source-1",
+                source_ref_id="feishu:docx:delivery-source-1",
+                revision_id=source.sha256,
+                access_envelope_id="feishu-owner-selection",
+                content_artifact_id=source.artifact_id,
+            ),
+        ),
+    )
+    completed = WorkerHost(
+        repository=app.state.runtime,
+        artifacts=app.state.artifacts,
+        executors=(SourceToArtifactExecutor(app.state.artifacts),),
+        verifiers=(DecisionRecordVerifier(app.state.artifacts),),
+        config=WorkerHostConfig(worker_id="feishu-delivery-worker"),
+    ).run_once()
+    assert completed is not None and completed.delivery_id is not None
+    app.state.runtime.present_delivery(completed.delivery_id, actor="feishu-outbox-test")
+    client = TestClient(app)
+    payload = _delivery_card_payload(delivery_id=completed.delivery_id)
+
+    decided = client.post("/feishu/events", json=payload)
+    duplicate = client.post("/feishu/events", json=payload)
+
+    assert decided.status_code == 200
+    assert decided.json()["toast"]["type"] == "success"
+    assert duplicate.json()["toast"]["content"] == "Decision already recorded."
+    delivery = app.state.runtime.get_delivery(completed.delivery_id)
+    assert delivery.state == DeliveryState.ACCEPTED
+    assert app.state.runtime.verify_delivery_replay(delivery.delivery_id) is True
+    assert app.state.runtime.verify_thread_replay(submitted.task.thread_id) is True
+    inbox = app.state.runtime.find_inbox_record(
+        f"feishu:delivery-card-accept-{completed.delivery_id}"
+    )
+    assert inbox is not None and inbox.route_type.value == "control"
 
 
 def test_feishu_ambiguous_continuation_waits_for_durable_route_command(tmp_path) -> None:

@@ -2,6 +2,7 @@
 
 from .artifacts import ArtifactCAS, ArtifactRef
 from .coordinator import ActiveRun, TaskHandle, ThreadCoordinator
+from .delivery import DeliveryDecisionResult, DeliveryDecisionService
 from .errors import (
     ArtifactCorruption,
     ArtifactNotFound,
@@ -48,6 +49,8 @@ from .models import (
     AttentionState,
     BranchProjection,
     BranchStatus,
+    DeliveryDecisionRecord,
+    DeliveryDecisionType,
     DeliveryRecord,
     DeliveryState,
     DesiredState,
@@ -108,6 +111,10 @@ __all__ = [
     "DeliveryRecord",
     "DeliveryState",
     "DecisionRecordVerifier",
+    "DeliveryDecisionRecord",
+    "DeliveryDecisionResult",
+    "DeliveryDecisionService",
+    "DeliveryDecisionType",
     "EventDraft",
     "EventEnvelope",
     "ExecutionControl",

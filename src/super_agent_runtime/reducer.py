@@ -8,6 +8,9 @@ from .models import (
     AttentionState,
     BranchProjection,
     BranchStatus,
+    DeliveryDecisionType,
+    DeliveryRecord,
+    DeliveryState,
     DesiredState,
     EventEnvelope,
     RunProjection,
@@ -168,6 +171,15 @@ RUN_TRANSITIONS: dict[RunState, frozenset[RunState]] = {
 }
 
 
+DELIVERY_DECISION_STATES: dict[DeliveryDecisionType, DeliveryState] = {
+    DeliveryDecisionType.ACCEPT: DeliveryState.ACCEPTED,
+    DeliveryDecisionType.REVISE: DeliveryState.REVISION_REQUESTED,
+    DeliveryDecisionType.REJECT: DeliveryState.REJECTED,
+    DeliveryDecisionType.DEFER: DeliveryState.DEFERRED,
+    DeliveryDecisionType.TAKE_OVER: DeliveryState.TAKEN_OVER,
+}
+
+
 def _required(payload: dict[str, Any], key: str) -> Any:
     if key not in payload:
         raise InvalidTransition(f"event payload is missing required field: {key}")
@@ -190,6 +202,90 @@ def _replace_branch(
     branches = [item for item in projection.branches if item.branch_id != branch.branch_id]
     branches.append(branch)
     return tuple(sorted(branches, key=lambda item: item.branch_id))
+
+
+def reduce_delivery(
+    projection: DeliveryRecord | None,
+    event: EventEnvelope,
+) -> DeliveryRecord:
+    """Pure reducer for one versioned Delivery stream."""
+
+    payload = dict(event.payload)
+    if event.event_type == "delivery.prepared":
+        if projection is not None:
+            raise InvalidTransition("delivery.prepared can only be the first Delivery event")
+        delivery_id = str(_required(payload, "delivery_id"))
+        if event.stream_type != "delivery" or event.stream_id != delivery_id:
+            raise InvalidTransition("Delivery stream id must equal delivery_id")
+        if event.thread_id is None or event.run_id is None:
+            raise InvalidTransition("Delivery events require thread_id and run_id")
+        return DeliveryRecord(
+            delivery_id=delivery_id,
+            thread_id=event.thread_id,
+            run_id=event.run_id,
+            version=int(_required(payload, "version")),
+            state=DeliveryState.PREPARED,
+            summary_artifact_id=str(_required(payload, "summary_artifact_id")),
+            primary_artifact_id=str(_required(payload, "primary_artifact_id")),
+            verifier_result_artifact_id=str(_required(payload, "verifier_result_artifact_id")),
+            supporting_artifact_ids=tuple(
+                str(item) for item in payload.get("supporting_artifact_ids", ())
+            ),
+            source_refs=tuple(str(item) for item in payload.get("source_refs", ())),
+            previous_delivery_id=payload.get("previous_delivery_id"),
+            allowed_decisions=tuple(str(item) for item in payload.get("allowed_decisions", ())),
+            sensitivity=str(payload.get("sensitivity", "normal")),
+            export_policy=str(payload.get("export_policy", "local_only")),
+            created_at=event.occurred_at,
+        )
+
+    if projection is None:
+        raise InvalidTransition(f"{event.event_type} cannot precede delivery.prepared")
+
+    if event.event_type == "delivery.presented":
+        if projection.state != DeliveryState.PREPARED:
+            raise InvalidTransition("only a prepared Delivery may be presented")
+        return replace(
+            projection,
+            state=DeliveryState.PRESENTED,
+            presented_at=event.occurred_at,
+        )
+
+    if event.event_type == "delivery.decision_recorded":
+        if projection.state != DeliveryState.PRESENTED:
+            raise InvalidTransition("only a presented Delivery may receive an owner decision")
+        decision = DeliveryDecisionType(_required(payload, "decision"))
+        if decision.value not in projection.allowed_decisions:
+            raise InvalidTransition(f"Delivery does not allow decision: {decision.value}")
+        revision_run_id = payload.get("revision_run_id")
+        if decision == DeliveryDecisionType.REVISE and not revision_run_id:
+            raise InvalidTransition("revision decisions require a revision_run_id")
+        if decision != DeliveryDecisionType.REVISE and revision_run_id:
+            raise InvalidTransition("only revision decisions may reference a revision Run")
+        return replace(
+            projection,
+            state=DELIVERY_DECISION_STATES[decision],
+            decided_at=event.occurred_at,
+            decision_id=str(_required(payload, "decision_id")),
+            decision_artifact_id=str(_required(payload, "decision_artifact_id")),
+            decision_actor=event.actor,
+            revision_run_id=str(revision_run_id) if revision_run_id else None,
+        )
+
+    if event.event_type == "delivery.revision_run_created":
+        if projection.state != DeliveryState.REVISION_REQUESTED:
+            raise InvalidTransition("revision Run requires a revision-requested Delivery")
+        if str(_required(payload, "revision_run_id")) != projection.revision_run_id:
+            raise InvalidTransition("revision Run does not match the Delivery decision")
+        return projection
+
+    if event.event_type in {
+        "delivery.notification_enqueued",
+        "delivery.notification_receipted",
+    }:
+        return projection
+
+    raise InvalidTransition(f"unsupported Delivery event type: {event.event_type}")
 
 
 def reduce_thread(

@@ -12,6 +12,8 @@ from super_agent_runtime import (
     ApprovalState,
     ArtifactCAS,
     ConcurrencyConflict,
+    DeliveryDecisionService,
+    DeliveryDecisionType,
     DeliveryState,
     IdempotencyConflict,
     InboxCoordinator,
@@ -63,6 +65,14 @@ class RouteDecisionRequest(BaseModel):
     thread_id: str | None = None
     update_kind: ThreadUpdateKind | None = None
     reason: str = "user_route_decision"
+
+
+class DeliveryDecisionRequest(BaseModel):
+    decision: DeliveryDecisionType
+    idempotency_key: str = Field(min_length=1, max_length=200)
+    actor_id: str = Field(default="owner", min_length=1, max_length=200)
+    reason: str | None = Field(default=None, max_length=4_000)
+    revision_request: str | None = Field(default=None, max_length=4_000)
 
 
 def _timestamp(value: datetime) -> str:
@@ -120,6 +130,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         artifacts=artifacts,
         agent_snapshot_id=default_agent_snapshot.artifact_id,
     )
+    delivery_decisions = DeliveryDecisionService(
+        repository=runtime,
+        artifacts=artifacts,
+    )
     feishu_ingress = IngressAdapter(
         platform="feishu",
         coordinator=inbox,
@@ -145,6 +159,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ingress=feishu_ingress,
         messenger=FeishuMessenger(settings),
         card_parser=FeishuCardActionParser(settings),
+        delivery_decisions=delivery_decisions,
     )
 
     app = FastAPI(title=settings.app_name, version="0.1.0")
@@ -157,6 +172,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.threads = threads
     app.state.inbox = inbox
     app.state.source_tasks = source_tasks
+    app.state.delivery_decisions = delivery_decisions
     app.state.feishu_ingress = feishu_ingress
     app.state.local_ingress = local_ingress
     app.state.default_agent_snapshot = default_agent_snapshot
@@ -256,6 +272,40 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except InvalidTransition as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"delivery": delivery.as_dict()}
+
+    @app.post("/runtime/deliveries/{delivery_id}/decision")
+    async def runtime_decide_delivery(
+        delivery_id: str,
+        payload: DeliveryDecisionRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        if not _is_loopback(request):
+            raise HTTPException(status_code=403, detail="Delivery decisions require loopback")
+        try:
+            result = delivery_decisions.decide(
+                delivery_id,
+                decision=payload.decision,
+                actor=payload.actor_id,
+                idempotency_key=payload.idempotency_key,
+                reason=payload.reason,
+                revision_request=payload.revision_request,
+            )
+        except NotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except (ConcurrencyConflict, IdempotencyConflict) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except (InvalidTransition, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            "delivery": result.delivery.as_dict(),
+            "decision": result.decision.as_dict(),
+            "revision_job": (
+                result.revision_job.as_dict() if result.revision_job is not None else None
+            ),
+            "thread": result.thread.as_dict(),
+            "delivery_replay_verified": runtime.verify_delivery_replay(delivery_id),
+            "thread_replay_verified": runtime.verify_thread_replay(result.thread.thread_id),
+        }
 
     @app.get("/runtime/outbox")
     async def runtime_outbox(

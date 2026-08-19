@@ -6,6 +6,14 @@ All notable changes to CoPenguin are documented here. The project follows
 
 ## [Unreleased]
 
+### Added
+
+- replayable, idempotent Delivery decisions for accept, revise, reject, defer,
+  and take-over outcomes;
+- immutable revision Runs with newly frozen Task and Context snapshots;
+- loopback Delivery decision API and Feishu Delivery card callback contract;
+- independent Delivery replay verification and revision rollback injection.
+
 ## [0.1.0] - 2026-08-18
 
 ### Added

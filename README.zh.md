@@ -26,9 +26,9 @@
 <img src="assets/readme-banner.svg" alt="CoPenguin Banner 与企鹅连体服 Q 版角色" width="100%" />
 
 > [!IMPORTANT]
-> **当前状态：早期 Alpha。** 收敛分支中的 V2-001 至 V2-006 已有测试支撑：
-> 一个来源可以经过可 replay 的 Step 和一次原子终结事务，成为已验证、可检查的 Delivery。
-> V2-007 的用户交付决定与事务化渠道发送仍是下一步。CoPenguin 不会自行晋升记忆、
+> **当前状态：早期 Alpha。** V2-001 至 V2-007 已有测试支撑：一个来源可以经过可 replay
+> 的 Step、一次原子终结事务和可 replay 的主人决定，成为可信闭环 Delivery。事务化渠道
+> 发送与真实飞书发布仍是独立验收门。CoPenguin 不会自行晋升记忆、
 > Skill、Hook 或权限。
 
 真正有用的私人助理，应该允许用户只面对一个自然聊天入口，又不会把所有请求揉成一段
@@ -51,7 +51,9 @@ CoPenguin 始终保留编排权与策略边界。
   -> 带 fencing 的 Worker + 可恢复 checkpoint
   -> 可 replay Step + 可选的受治理外部动作
   -> 确定性 Verifier
-  -> 原子 Delivery + Outbox 意图 + 受治理的学习候选项
+  -> 原子 Delivery + Outbox 意图
+  -> 接受 | 修改 | 拒绝 | 稍后 | 接管
+  -> 受治理的学习候选项
 ```
 
 Alpha 主路径是 **Source → Inspectable Artifact / 来源到可检查产物**：把用户明确选择的
@@ -68,8 +70,8 @@ Alpha 主路径是 **Source → Inspectable Artifact / 来源到可检查产物*
 | 恢复能力 | 不可变 Artifact CAS、Run 冻结快照、checkpoint 与 Step 尝试记录 |
 | 入口判断 | 区分对话、新任务、任务更新、控制命令与需要确认的歧义 |
 | 外部动作 | Intent → 审批 → Provider → Receipt，并支持崩溃对账 |
-| 可信闭环 | 确定性 Verifier、版本化 Delivery、原子终态与 Outbox 意图 |
-| 操作视图 | Thread、Step、Delivery、Outbox、路由、动作与审批的只读 API |
+| 可信闭环 | 确定性 Verifier、版本化 Delivery、五种可 replay 决定与不可变 revision Run |
+| 操作视图 | Thread、Step、Delivery、决定、Outbox、路由、动作与审批 projection |
 | 当前入口 | 本地 CLI、飞书 webhook 与可选飞书长连接 |
 | 可选智能层 | EvolveMemory 与 EvolveKB adapter |
 
@@ -215,7 +217,7 @@ Hook/self-loop 边界、按顺序拆分的 PR 与 Definition of Done。
 把用户明确选择的飞书来源转成经过验证的项目决策记录，再通过持久审批把已接受的 Delivery
 发布为 Wiki 草稿。
 
-前六个收敛切片已在当前分支通过测试级验收：
+前七个收敛切片已在当前分支通过测试级验收：
 [V2-001 统一 Ingress](docs/V2_001_UNIFIED_INGRESS.md) 提供跨重启的消息身份；
 [V2-002 持久产品审批](docs/V2_002_DURABLE_PRODUCT_APPROVALS.md) 把 computer action 绑定到
 持久 Intent、Approval、claim、Artifact 与 Receipt；
@@ -223,8 +225,9 @@ Hook/self-loop 边界、按顺序拆分的 PR 与 Definition of Done。
 方法 Branch、取消和歧义路由决定全部耐久化；
 [V2-004 Worker Host](docs/V2_004_WORKER_HOST.md) 增加有界执行；
 [V2-005 Step + Verifier](docs/V2_005_STEP_VERIFIER.md) 记录 Step 因果链与验证证据；
-[V2-006 原子 Delivery](docs/V2_006_ATOMIC_DELIVERY.md) 在同一事务关闭全部数据库终态。
-V2-007 用户 Delivery 决定是下一工程切片。
+[V2-006 原子 Delivery](docs/V2_006_ATOMIC_DELIVERY.md) 在同一事务关闭全部数据库终态；
+[V2-007 Delivery 决定](docs/V2_007_DELIVERY_DECISIONS.md) 持久化五种主人决定，并为修改请求
+原子创建绑定新快照的不可变 Run。
 
 ## 稳定能力与原型边界
 
@@ -236,6 +239,8 @@ V2-007 用户 Delivery 决定是下一工程切片。
 - 有界 Worker Host、Executor 路由、可 replay 的 transform/verifier Step 与确定性
   DecisionRecordVerifier；
 - Run/Thread/scheduler/Delivery/Attention/Outbox 原子终结，并覆盖故障注入回滚；
+- accept/revise/reject/defer/take-over 决定可幂等、可 replay；修改请求原子排队新的
+  snapshot-bound Run，同时保留全部旧工作；
 - 飞书/本地统一 Ingress、跨重启入站去重、规范化消息 Artifact 与持久保守路由；
 - 持久 Thread 更新、不可变 replacement snapshot/Run、方法 Branch 谱系、取消传播与
   仅限 owner 的路由决定；
@@ -251,7 +256,6 @@ V2-007 用户 Delivery 决定是下一工程切片。
 - 首次接收的消息仍会从耐久 Ingress 进入兼容助理；computer gateway 仍内联执行已
   claim 的 Action，而不是交给 Worker Host；
 - Delivery 通知意图已事务化，但渠道 dispatcher 与发送 Receipt 尚未接入 Outbox；
-- accept/revise/reject/defer/take-over 与不可变 revision Run 属于 V2-007；
 - 飞书长连接和卡片已有 mock 契约测试，但仍需真实凭据与已发布 App 的 smoke test；
 - 广义视觉 computer-use 尚未交付；真实 macOS Provider 刻意只允许预先创建、精确
   allowlist 的 Shortcuts；

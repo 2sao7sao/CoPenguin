@@ -125,6 +125,14 @@ class DeliveryState(StrEnum):
     TAKEN_OVER = "taken_over"
 
 
+class DeliveryDecisionType(StrEnum):
+    ACCEPT = "accept"
+    REVISE = "revise"
+    REJECT = "reject"
+    DEFER = "defer"
+    TAKE_OVER = "take_over"
+
+
 class OutboxState(StrEnum):
     PENDING = "pending"
     CLAIMED = "claimed"
@@ -418,6 +426,31 @@ class DeliveryRecord:
     created_at: str = ""
     presented_at: str | None = None
     decided_at: str | None = None
+    decision_id: str | None = None
+    decision_artifact_id: str | None = None
+    decision_actor: str | None = None
+    revision_run_id: str | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @property
+    def projection_hash(self) -> str:
+        return content_hash(self.as_dict())
+
+
+@dataclass(frozen=True)
+class DeliveryDecisionRecord:
+    decision_id: str
+    delivery_id: str
+    thread_id: str
+    run_id: str
+    decision: DeliveryDecisionType
+    actor: str
+    decision_artifact_id: str
+    idempotency_key: str
+    created_at: str
+    revision_run_id: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)

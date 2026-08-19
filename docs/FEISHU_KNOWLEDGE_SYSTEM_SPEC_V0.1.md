@@ -1,6 +1,6 @@
 # CoPenguin 飞书记忆与知识系统规格 v0.1
 
-状态：Specified，等待 V2-002 → V2-007 主链逐步实现
+状态：V2-002 → V2-007 本地主链已测试实现；真实飞书发送与 Wiki 发布仍待凭据验收
 
 日期：2026-08-13
 
@@ -492,14 +492,14 @@ publish.reconciliation_required
 | V2-004 ✅ | Worker Host / Executor | `SourceSnapshot -> Project Decision Record draft` 可从 queue 自动完成 |
 | V2-005 ✅ | Step / Verifier | transform、verify 分 Step；VerifierResult 版本化并保留 causal trace |
 | V2-006 ✅ | atomic finalize | Run、Delivery、Attention、Outbox 不出现分裂终态 |
-| V2-007 | Delivery decision | 飞书卡片的 accept/revise/reject/defer/takeover 可 replay；revise 创建新 Run |
+| V2-007 ✅ | Delivery decision | 飞书卡片的 accept/revise/reject/defer/takeover 可 replay；revise 创建新 Run |
 | V2-008/009 | Control Room | 可查看来源、权限、引用、版本、决定、发布 Receipt |
 | V2-011 | Memory Scope Contract | Candidate 可审阅；Run 显示 MemorySelectionManifest；支持纠正和忘记 |
 
-V2-002 至 V2-006 已完成收敛分支的测试级验收；这只建立统一入口、有界执行、确定性
-Verifier 与原子 Delivery/Outbox，不授权真实飞书 Wiki 写入。当前 V2-004/005 使用可重复的
-deterministic fixture 与 Verifier。真实发布仍需 V2-007 Delivery 决定、durable Approval、
-Outbox dispatcher 和发送 Receipt。
+V2-002 至 V2-007 已完成本地测试级验收；这建立了统一入口、有界执行、确定性 Verifier、
+原子 Delivery/Outbox，以及可 replay 的交付决定和 revision Run，但不授权真实飞书 Wiki 写入。
+当前 V2-004/005 仍使用可重复的 deterministic fixture 与 Verifier。真实发布仍需 durable
+Approval、Outbox dispatcher、发送 Receipt、Wiki Provider 和凭据支持的端到端 smoke test。
 
 ## 14. 端到端验收场景
 
