@@ -1,15 +1,15 @@
 # CoPenguin V2 Runtime Contract
 
-Status: implementation active; V2-001 through V2-007 have test-backed Alpha slices
+Status: implementation active; V2-001 through V2-008 have test-backed Alpha slices
 
 Accepted product theme: Trusted Closure
 
 Accepted Alpha Golden Path: Source to Inspectable Artifact
 
 This document turns the accepted V2 direction into implementation constraints.
-The accepted delivery order is `V2-001 -> V2-007`; individual contracts remain
-reviewable within each slice. It does
-not authorize autonomous promotion or broaden the current side-effect policy.
+The accepted delivery order through the local owner surface is `V2-001 -> V2-008`;
+individual contracts remain reviewable within each slice. It does not authorize
+autonomous promotion or broaden the current side-effect policy.
 
 ## 1. Required invariants
 
@@ -415,8 +415,10 @@ to appear in Memory Review; it cannot alter a Task or external action.
 
 ## 9. Security and privacy requirements
 
-- Runtime/Control Room APIs bind to loopback by default and require a local
-  session token.
+- Runtime/Control Room mutation and composed-data routes bind to loopback by
+  default. V2-008 ships without an actor-scoped session token; V2-010 must add
+  local session authentication and independent Artifact download authorization
+  before the surface can move beyond this Alpha boundary.
 - Remote channel startup fails closed when callback verification, actor policy,
   or required credentials are missing.
 - Channel credentials never enter Artifact CAS or event payloads.

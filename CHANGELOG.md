@@ -8,6 +8,12 @@ All notable changes to CoPenguin are documented here. The project follows
 
 ### Added
 
+- a responsive, loopback-only local Control Room for Project-grouped parallel
+  Threads, Attention, Run/Step lineage, Artifact previews, and Delivery history;
+- composed Control Room read models that derive from Runtime projections and
+  digest-verified Artifact CAS content without creating UI-owned truth;
+- natural-language local task creation and all five existing Delivery decisions,
+  including immutable revision Run/Delivery lineage, from the owner surface;
 - replayable, idempotent Delivery decisions for accept, revise, reject, defer,
   and take-over outcomes;
 - immutable revision Runs with newly frozen Task and Context snapshots;
