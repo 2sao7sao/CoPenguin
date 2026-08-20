@@ -1,6 +1,6 @@
 # CoPenguin V2 产品与工程优化方向
 
-状态：产品方向与 `V2-001 -> V2-007` 工程实施顺序已确认；V2-001 至 V2-007 已完成测试级验收
+状态：产品方向与 `V2-001 -> V2-008` 工程实施顺序已确认；V2-001 至 V2-008 已完成测试级验收
 
 版本主题：**Trusted Closure / 可信闭环**
 
@@ -12,7 +12,7 @@
 
 - V2 采用 **Trusted Closure / 可信闭环**；
 - **Source to Inspectable Artifact** 作为 Alpha 主路径；
-- 按 `V2-001 -> V2-007` 的顺序实施，每个切片独立验收后再进入下一个切片。
+- 按 `V2-001 -> V2-008` 的顺序实施，每个切片独立验收后再进入下一个切片。
 
 这里的“Alpha 主路径”是产品范围决定，不代表用户需求、重复委托或留存假设已经通过验证。
 
@@ -26,8 +26,9 @@ CoPenguin 当前最大的优点与最大的问题是同一件事：
 持久审批等基础原语已经存在。初始审计发现飞书和 `/computer` 仍绕过这些原语；V2-001
 已统一 Ingress，V2-002 已统一电脑动作的 Approval 与 Receipt，V2-003 已让 Thread 更新、
 方法分支、取消与歧义确认进入持久主链；V2-004 至 V2-007 已补齐有界 Worker、Step、
-Verifier、原子 Delivery/Outbox 与可 replay 的用户决定。真实渠道发送、发布和本地控制界面
-仍需后续切片完成。
+Verifier、原子 Delivery/Outbox 与可 replay 的用户决定；V2-008 已加入仅限本机的 Control
+Room，把并行 Thread、Attention、Run/Step、Artifact 和 Delivery 决策组成可操作界面。
+真实渠道发送、发布、路由纠正 UI 与本地会话认证仍需后续切片完成。
 
 因此，V2 不应以“更多工具、更强模型、自动自我进化”为目标，而应完成一条可以实际使用、
 可以中断恢复、可以验证结果、可以积累信任的主链：
@@ -76,7 +77,8 @@ V2 的一句话定位建议是：
 | Context 冻结 | Implemented | 新任务入口绑定 Task/Agent/Context snapshot + CAS | Memory/KB snapshot 仍是空引用 |
 | Inbox 路由 | Implemented | 飞书/本地统一路由；Thread update、候选、owner confirmation/correction/expiry 与取消均持久 | 交互卡片和已提交路线的补偿式纠正待 V2-009 |
 | 外部动作治理 | Partial | `/computer` 已接入 durable Intent/Approval/claim/Receipt | 暂由 compatibility gateway inline 执行；缺少 Worker Host 与 Provider reconciler |
-| 交付 | Implemented/Alpha | Verifier、版本化 Delivery、原子 Outbox、五种用户决定、不可变 revision Run | 渠道 dispatcher、发送 Receipt、发布 Approval/Provider 与 Control Room UI 尚未完成 |
+| 交付 | Implemented/Alpha | Verifier、版本化 Delivery、原子 Outbox、五种用户决定、不可变 revision Run、Control Room 决策界面 | 渠道 dispatcher、发送 Receipt 与发布 Approval/Provider 尚未完成 |
+| 本地控制面 | Implemented/Alpha | 响应式 Thread/Attention/Run/Step/Artifact/Delivery 视图；loopback-only 组合读取 | 路由补偿式纠正待 V2-009；会话认证与独立下载授权待 V2-010 |
 | 记忆 | Partial | EvolveMemory adapter | 当前 scope 主要是 `platform:actor`；没有产品层审阅、纠正、忘记和“待推理画像”状态 |
 | 知识与技能 | Partial | EvolveKB adapter | Run 未绑定实际 KB/Skill snapshot；使用结果不会形成受治理提案链 |
 | Hook | Specified | AgentSnapshot 已预留 `hook_registry_snapshot_id` | 没有 Registry、调用协议、失败策略、trace 和权限边界 |
@@ -588,8 +590,8 @@ V2-007 已记录接受决定；接受后仍需 durable Approval，才能通过 `
 
 | PR | 目标 | 验收 |
 | --- | --- | --- |
-| V2-008 | 本地 Control Room | 可查看 TaskThreads、Attention、Run/Step、Artifacts、Approvals |
-| V2-009 | Route/Delivery 决策 UI | 用户可纠正路由并对交付做明确决定 |
+| V2-008 ✅ | 本地 Control Room | 可查看 TaskThreads、Attention、Run/Step、Artifacts、能力状态并完成 Delivery 决策 |
+| V2-009 | Route correction UI | 用户可确认歧义路由，并对已提交路线做补偿式纠正 |
 | V2-010 | Auth + Artifact access | loopback token、独立下载授权、非 loopback 显式 opt-in |
 
 ### Milestone D：Learn Safely / 受治理学习
@@ -699,6 +701,7 @@ V2 只有同时满足产品闭环和 Runtime 闭环才算完成。
 7. Self-loop 在 V2 只打开 ReviewCase 和 remediation proposal；
 8. 自动晋升与 L3 自治继续保持关闭，直到 Pilot 与独立评估门通过。
 
-工程实施已完成 `V2-001` → `V2-007` 的测试级验收，下一切片是 `V2-008` 本地 Control Room。
-当前可以声称 Alpha Runtime 已形成可 replay 的交付决定闭环，但在真实渠道 dispatcher、发送
-Receipt、发布 Approval/Provider、认证界面和 Pilot 完成前，仍不能声称完整产品或飞书发布闭环。
+工程实施已完成 `V2-001` → `V2-008` 的测试级验收，下一切片是 `V2-009` 路由确认与
+补偿式纠正界面。当前可以声称 Alpha Runtime 已形成可 replay 的交付决定闭环，并可在
+loopback Control Room 中理解和操作；但在真实渠道 dispatcher、发送 Receipt、发布
+Approval/Provider、本地会话认证和 Pilot 完成前，仍不能声称完整产品或飞书发布闭环。

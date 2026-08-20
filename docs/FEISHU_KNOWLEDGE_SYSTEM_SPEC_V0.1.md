@@ -493,10 +493,11 @@ publish.reconciliation_required
 | V2-005 ✅ | Step / Verifier | transform、verify 分 Step；VerifierResult 版本化并保留 causal trace |
 | V2-006 ✅ | atomic finalize | Run、Delivery、Attention、Outbox 不出现分裂终态 |
 | V2-007 ✅ | Delivery decision | 飞书卡片的 accept/revise/reject/defer/takeover 可 replay；revise 创建新 Run |
-| V2-008/009 | Control Room | 可查看来源、权限、引用、版本、决定、发布 Receipt |
+| V2-008 ✅ | 本地 Control Room | 可查看 Thread、Run/Step、Artifact、引用、版本与 Delivery 决定；不具备发布权限 |
+| V2-009 | Route correction UI | 可确认歧义消息归属并对已提交路线做补偿式纠正 |
 | V2-011 | Memory Scope Contract | Candidate 可审阅；Run 显示 MemorySelectionManifest；支持纠正和忘记 |
 
-V2-002 至 V2-007 已完成本地测试级验收；这建立了统一入口、有界执行、确定性 Verifier、
+V2-002 至 V2-008 已完成本地测试级验收；这建立了统一入口、有界执行、确定性 Verifier、
 原子 Delivery/Outbox，以及可 replay 的交付决定和 revision Run，但不授权真实飞书 Wiki 写入。
 当前 V2-004/005 仍使用可重复的 deterministic fixture 与 Verifier。真实发布仍需 durable
 Approval、Outbox dispatcher、发送 Receipt、Wiki Provider 和凭据支持的端到端 smoke test。

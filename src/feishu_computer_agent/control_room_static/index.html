@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#111a24" />
+    <meta name="color-scheme" content="light" />
+    <title>CoPenguin 本地任务控制室</title>
+    <link rel="icon" href="/control-room/static/copenguin-logo.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/control-room/static/control-room.css" />
+  </head>
+  <body>
+    <div class="app-shell" id="app-shell">
+      <aside class="primary-nav" aria-label="主导航">
+        <div class="brand-lockup">
+          <img
+            class="brand-avatar"
+            src="/control-room/static/copenguin-logo.svg"
+            alt="CoPenguin 企鹅角色"
+          />
+          <div>
+            <strong>CoPenguin</strong>
+            <span>本地任务控制室</span>
+          </div>
+        </div>
+
+        <nav class="nav-list">
+          <button class="nav-item is-active" type="button" data-view="overview">
+            <svg aria-hidden="true"><use href="#icon-home"></use></svg>
+            <span>总览</span>
+          </button>
+          <button class="nav-item" type="button" data-view="attention">
+            <svg aria-hidden="true"><use href="#icon-bell"></use></svg>
+            <span>需要我处理</span>
+            <span class="nav-count" id="nav-attention-count" hidden>0</span>
+          </button>
+          <button class="nav-item" type="button" data-view="tasks">
+            <svg aria-hidden="true"><use href="#icon-list"></use></svg>
+            <span>全部任务</span>
+          </button>
+          <button class="nav-item" type="button" data-view="inbox">
+            <svg aria-hidden="true"><use href="#icon-inbox"></use></svg>
+            <span>收件箱</span>
+          </button>
+          <button class="nav-item" type="button" data-view="capabilities">
+            <svg aria-hidden="true"><use href="#icon-shield"></use></svg>
+            <span>记忆与权限</span>
+          </button>
+        </nav>
+
+        <div class="local-status">
+          <span class="local-status-dot" aria-hidden="true"></span>
+          <div>
+            <strong>仅在本机</strong>
+            <span>数据保存在本地 Runtime</span>
+          </div>
+        </div>
+      </aside>
+
+      <header class="mobile-header">
+        <button class="icon-button" id="mobile-task-back" type="button" aria-label="返回任务列表">
+          <svg aria-hidden="true"><use href="#icon-arrow-left"></use></svg>
+        </button>
+        <div class="mobile-brand">
+          <img src="/control-room/static/copenguin-logo.svg" alt="" />
+          <strong>CoPenguin</strong>
+        </div>
+        <button
+          class="mobile-attention-button"
+          type="button"
+          data-view="attention"
+          aria-label="需要我处理"
+        >
+          <svg aria-hidden="true"><use href="#icon-bell"></use></svg>
+          <span>需要我处理</span>
+        </button>
+      </header>
+
+      <section class="task-rail" id="task-rail" aria-label="任务列表">
+        <div class="rail-heading">
+          <h1>任务</h1>
+          <button class="icon-button" id="refresh-button" type="button" aria-label="刷新状态">
+            <svg aria-hidden="true"><use href="#icon-refresh"></use></svg>
+          </button>
+        </div>
+
+        <form class="task-composer" id="task-composer">
+          <label class="sr-only" for="composer-text">描述任务</label>
+          <textarea
+            id="composer-text"
+            rows="3"
+            maxlength="4000"
+            placeholder="描述结果，或继续任一任务…"
+          ></textarea>
+          <div class="composer-toolbar">
+            <div class="composer-context">
+              <label>
+                <span class="sr-only">任务方式</span>
+                <select id="composer-mode">
+                  <option value="new">新任务</option>
+                  <option value="continue">继续当前任务</option>
+                </select>
+              </label>
+              <label>
+                <span class="sr-only">项目</span>
+                <input id="composer-project" value="personal" maxlength="80" aria-label="项目" />
+              </label>
+            </div>
+            <button class="primary-button composer-submit" type="submit">
+              <span>交给 CoPenguin</span>
+              <svg aria-hidden="true"><use href="#icon-send"></use></svg>
+            </button>
+          </div>
+        </form>
+
+        <div class="rail-filter" id="rail-filter" hidden>
+          <span id="rail-filter-label"></span>
+          <button type="button" id="clear-filter">查看全部</button>
+        </div>
+        <div class="thread-groups" id="thread-groups" aria-live="polite">
+          <div class="rail-loading">
+            <span class="loading-ring" aria-hidden="true"></span>
+            <span>正在读取本地任务…</span>
+          </div>
+        </div>
+      </section>
+
+      <main class="detail-pane" id="detail-pane" tabindex="-1">
+        <div class="detail-loading">
+          <img src="/control-room/static/copenguin-logo.svg" alt="" />
+          <p>正在整理任务状态…</p>
+        </div>
+      </main>
+
+      <aside class="attention-rail" id="attention-rail" aria-label="需要我处理">
+        <div class="attention-heading">
+          <div>
+            <h2>需要我处理</h2>
+            <p>只保留需要你决定的事项</p>
+          </div>
+          <button class="icon-button attention-close" type="button" aria-label="关闭">
+            <svg aria-hidden="true"><use href="#icon-x"></use></svg>
+          </button>
+        </div>
+        <div class="attention-list" id="attention-list"></div>
+        <button class="attention-all" type="button" data-view="attention">
+          <span>查看全部需要我处理</span>
+          <svg aria-hidden="true"><use href="#icon-chevron-right"></use></svg>
+        </button>
+      </aside>
+
+      <nav class="bottom-nav" aria-label="移动端导航">
+        <button class="is-active" type="button" data-view="overview">
+          <svg aria-hidden="true"><use href="#icon-home"></use></svg>
+          <span>总览</span>
+        </button>
+        <button type="button" data-view="tasks">
+          <svg aria-hidden="true"><use href="#icon-list"></use></svg>
+          <span>任务</span>
+        </button>
+        <button type="button" data-view="attention">
+          <svg aria-hidden="true"><use href="#icon-bell"></use></svg>
+          <span>需要我处理</span>
+          <span class="bottom-count" id="bottom-attention-count" hidden>0</span>
+        </button>
+      </nav>
+    </div>
+
+    <dialog class="artifact-dialog" id="artifact-dialog" aria-labelledby="artifact-dialog-title">
+      <div class="dialog-header">
+        <div>
+          <span>本地 Artifact</span>
+          <h2 id="artifact-dialog-title">产出物</h2>
+        </div>
+        <button class="icon-button" id="artifact-dialog-close" type="button" aria-label="关闭">
+          <svg aria-hidden="true"><use href="#icon-x"></use></svg>
+        </button>
+      </div>
+      <div class="artifact-dialog-body" id="artifact-dialog-body"></div>
+      <div class="dialog-footer">
+        <span id="artifact-dialog-meta"></span>
+        <button class="secondary-button" id="artifact-dialog-done" type="button">完成</button>
+      </div>
+    </dialog>
+
+    <div class="toast-region" id="toast-region" role="status" aria-live="polite"></div>
+
+    <svg class="svg-symbols" aria-hidden="true">
+      <symbol id="icon-home" viewBox="0 0 24 24">
+        <path d="M3 10.8 12 3l9 7.8v9.7a.5.5 0 0 1-.5.5H15v-6H9v6H3.5a.5.5 0 0 1-.5-.5v-9.7Z" />
+      </symbol>
+      <symbol id="icon-bell" viewBox="0 0 24 24">
+        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4" />
+      </symbol>
+      <symbol id="icon-list" viewBox="0 0 24 24">
+        <path d="M9 6h12M9 12h12M9 18h12M3.5 6h.01M3.5 12h.01M3.5 18h.01" />
+      </symbol>
+      <symbol id="icon-inbox" viewBox="0 0 24 24">
+        <path d="M4 4h16l2 10v6H2v-6L4 4Zm-2 10h6l2 3h4l2-3h6" />
+      </symbol>
+      <symbol id="icon-shield" viewBox="0 0 24 24">
+        <path d="M12 3 4 6v5c0 5.2 3.2 8.5 8 10 4.8-1.5 8-4.8 8-10V6l-8-3Zm-3 9 2 2 4-4" />
+      </symbol>
+      <symbol id="icon-refresh" viewBox="0 0 24 24">
+        <path d="M20 6v5h-5M4 18v-5h5M18.5 9A7 7 0 0 0 6 7l-2 4m16 2-2 4a7 7 0 0 1-12.5-2" />
+      </symbol>
+      <symbol id="icon-send" viewBox="0 0 24 24">
+        <path d="m3 11 18-8-8 18-2-8-8-2Zm8 2 4-4" />
+      </symbol>
+      <symbol id="icon-chevron-right" viewBox="0 0 24 24">
+        <path d="m9 5 7 7-7 7" />
+      </symbol>
+      <symbol id="icon-chevron-down" viewBox="0 0 24 24">
+        <path d="m5 9 7 7 7-7" />
+      </symbol>
+      <symbol id="icon-arrow-left" viewBox="0 0 24 24">
+        <path d="m15 18-6-6 6-6" />
+      </symbol>
+      <symbol id="icon-check" viewBox="0 0 24 24">
+        <path d="m5 12 4 4L19 6" />
+      </symbol>
+      <symbol id="icon-clock" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7v5l3 2" />
+      </symbol>
+      <symbol id="icon-user" viewBox="0 0 24 24">
+        <circle cx="12" cy="8" r="4" />
+        <path d="M4 21a8 8 0 0 1 16 0" />
+      </symbol>
+      <symbol id="icon-x" viewBox="0 0 24 24">
+        <path d="m6 6 12 12M18 6 6 18" />
+      </symbol>
+      <symbol id="icon-file" viewBox="0 0 24 24">
+        <path d="M6 2h8l4 4v16H6V2Zm8 0v5h5M9 13h6M9 17h6" />
+      </symbol>
+      <symbol id="icon-branch" viewBox="0 0 24 24">
+        <circle cx="6" cy="5" r="2" />
+        <circle cx="18" cy="7" r="2" />
+        <circle cx="6" cy="19" r="2" />
+        <path d="M6 7v10M8 9c4 0 4-2 8-2" />
+      </symbol>
+      <symbol id="icon-search" viewBox="0 0 24 24">
+        <circle cx="11" cy="11" r="7" />
+        <path d="m16 16 5 5" />
+      </symbol>
+      <symbol id="icon-alert" viewBox="0 0 24 24">
+        <path d="M12 3 2.5 20h19L12 3Zm0 6v5m0 3h.01" />
+      </symbol>
+    </svg>
+
+    <script type="module" src="/control-room/static/control-room.js"></script>
+  </body>
+</html>

@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import ipaddress
 from datetime import UTC, datetime
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from super_agent_runtime import (
@@ -11,6 +14,8 @@ from super_agent_runtime import (
     AgentSnapshot,
     ApprovalState,
     ArtifactCAS,
+    ArtifactCorruption,
+    ArtifactNotFound,
     ConcurrencyConflict,
     DeliveryDecisionService,
     DeliveryDecisionType,
@@ -35,6 +40,7 @@ from .action_gateway import DurableComputerActionGateway
 from .agent import PrivateAssistantAgent
 from .computer import build_computer_provider
 from .config import Settings, load_settings
+from .control_room import ControlRoomReadModel
 from .feishu import (
     FeishuCardActionParser,
     FeishuEventParser,
@@ -134,6 +140,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         repository=runtime,
         artifacts=artifacts,
     )
+    control_room = ControlRoomReadModel(
+        repository=runtime,
+        artifacts=artifacts,
+        settings=settings,
+    )
     feishu_ingress = IngressAdapter(
         platform="feishu",
         coordinator=inbox,
@@ -173,14 +184,68 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.inbox = inbox
     app.state.source_tasks = source_tasks
     app.state.delivery_decisions = delivery_decisions
+    app.state.control_room = control_room
     app.state.feishu_ingress = feishu_ingress
     app.state.local_ingress = local_ingress
     app.state.default_agent_snapshot = default_agent_snapshot
     app.state.feishu_service = service
 
+    control_room_static = Path(__file__).with_name("control_room_static")
+    app.mount(
+        "/control-room/static",
+        StaticFiles(directory=control_room_static),
+        name="control-room-static",
+    )
+
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/control-room", include_in_schema=False)
+    @app.get("/control-room/", include_in_schema=False)
+    async def control_room_page(request: Request) -> FileResponse:
+        if not _is_loopback(request):
+            raise HTTPException(status_code=403, detail="Control Room requires loopback")
+        return FileResponse(
+            control_room_static / "index.html",
+            media_type="text/html",
+            headers={
+                "Cache-Control": "no-store",
+                "Content-Security-Policy": (
+                    "default-src 'self'; script-src 'self'; style-src 'self'; "
+                    "img-src 'self' data:; connect-src 'self'; font-src 'self'; "
+                    "base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+                ),
+            },
+        )
+
+    @app.get("/control-room/api/overview")
+    async def control_room_overview(request: Request) -> dict[str, object]:
+        if not _is_loopback(request):
+            raise HTTPException(status_code=403, detail="Control Room requires loopback")
+        return control_room.overview()
+
+    @app.get("/control-room/api/threads/{thread_id}")
+    async def control_room_thread(thread_id: str, request: Request) -> dict[str, object]:
+        if not _is_loopback(request):
+            raise HTTPException(status_code=403, detail="Control Room requires loopback")
+        try:
+            return control_room.thread_detail(thread_id)
+        except NotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.get("/control-room/api/artifacts/{artifact_id:path}")
+    async def control_room_artifact(artifact_id: str, request: Request) -> dict[str, object]:
+        if not _is_loopback(request):
+            raise HTTPException(status_code=403, detail="Control Room requires loopback")
+        try:
+            return control_room.artifact_preview(artifact_id)
+        except ArtifactNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ArtifactCorruption as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.get("/runtime/threads")
     async def runtime_threads(

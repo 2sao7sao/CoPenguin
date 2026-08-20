@@ -9,10 +9,10 @@ expanding autonomy.
 The accepted Alpha Golden Path is **Source to Inspectable Artifact**. This is a
 scope decision awaiting interview and Pilot evidence, not a validation result.
 
-Engineering proceeds in the accepted `V2-001 -> V2-007` order. V2-001 through V2-007
-now have test-backed Alpha implementations. The next product-facing slice is the local
-Control Room; channel dispatch, publication, and credential-backed Feishu validation
-remain independent gates.
+Engineering proceeded through the accepted `V2-001 -> V2-008` sequence. V2-001
+through V2-008 now have test-backed Alpha implementations. V2-009 owns route
+correction and compensation UI; channel dispatch, publication, authentication, and
+credential-backed Feishu validation remain independent gates.
 
 - [V2 product and engineering direction](V2_PRODUCT_ENGINEERING_DIRECTION.md)
 - [V2 Runtime Contract](V2_RUNTIME_CONTRACT.md)
@@ -20,6 +20,7 @@ remain independent gates.
 - [V2-002 Durable Product Approvals](V2_002_DURABLE_PRODUCT_APPROVALS.md)
 - [V2-003 Durable Thread Updates](V2_003_DURABLE_THREAD_UPDATES.md)
 - [V2-007 Replayable Delivery Decisions](V2_007_DELIVERY_DECISIONS.md)
+- [V2-008 Local Control Room](V2_008_CONTROL_ROOM.md)
 
 The implementation order is determined by the product loop, not by the number
 of available channels, tools, or model Providers.
@@ -74,10 +75,10 @@ decision with a complete causal trace.
 
 ## V2-C: Expose the local control plane
 
-- [ ] Build a minimal local Control Room: Inbox, TaskThreads, Attention,
+- [x] Build a minimal local Control Room: Inbox, TaskThreads, Attention,
       Task Detail, Artifacts, Memory & Permissions
 - [ ] Show and correct Route Decisions
-- [ ] Show Delivery summary, evidence, decisions, diff, and next action
+- [x] Show Delivery summary, evidence, decisions, version lineage, and next action
 - [ ] Add local session authentication and scoped Artifact access
 - [ ] Require explicit opt-in before binding beyond loopback
 

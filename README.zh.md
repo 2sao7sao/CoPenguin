@@ -26,8 +26,10 @@
 <img src="assets/readme-banner.svg" alt="CoPenguin Banner 与企鹅连体服 Q 版角色" width="100%" />
 
 > [!IMPORTANT]
-> **当前状态：早期 Alpha。** V2-001 至 V2-007 已有测试支撑：一个来源可以经过可 replay
-> 的 Step、一次原子终结事务和可 replay 的主人决定，成为可信闭环 Delivery。事务化渠道
+> **当前状态：早期 Alpha。** V2-001 至 V2-008 已有测试支撑：一个来源可以经过可 replay
+> 的 Step、一次原子终结事务和可 replay 的主人决定，成为可信闭环 Delivery；仅限本机的
+> Control Room 已把并行 Thread、Attention、Run、Step、Artifact 与 Delivery 决策转成
+> 无需阅读日志也能理解和操作的界面。事务化渠道
 > 发送与真实飞书发布仍是独立验收门。CoPenguin 不会自行晋升记忆、
 > Skill、Hook 或权限。
 
@@ -71,8 +73,8 @@ Alpha 主路径是 **Source → Inspectable Artifact / 来源到可检查产物*
 | 入口判断 | 区分对话、新任务、任务更新、控制命令与需要确认的歧义 |
 | 外部动作 | Intent → 审批 → Provider → Receipt，并支持崩溃对账 |
 | 可信闭环 | 确定性 Verifier、版本化 Delivery、五种可 replay 决定与不可变 revision Run |
-| 操作视图 | Thread、Step、Delivery、决定、Outbox、路由、动作与审批 projection |
-| 当前入口 | 本地 CLI、飞书 webhook 与可选飞书长连接 |
+| 主人控制面 | 仅限本机的 Control Room：并行 Thread、Attention、Run、Step、Artifact 与 Delivery 决策 |
+| 当前入口 | 本地 Control Room、CLI、飞书 webhook 与可选飞书长连接 |
 | 可选智能层 | EvolveMemory 与 EvolveKB adapter |
 
 ## 5 分钟本地体验
@@ -89,6 +91,18 @@ copenguin demo
 `copenguin demo` 不需要飞书账号、API Key、模型调用或网络。它会创建一套隔离的
 本地 Runtime，执行两个可 replay Step，验证记录，在一个事务中准备 Delivery 与
 Outbox 意图，打印产物和本地数据路径。开发验收可安装 `.[dev]` 后运行 `pytest -q`。
+
+使用同一 Runtime 数据目录启动本地主人控制面：
+
+```bash
+copenguin serve
+# 打开 http://127.0.0.1:8787/control-room
+```
+
+V2-008 Control Room 刻意只允许 loopback 访问。它通过耐久 Inbox 创建隔离任务，解释所选
+Thread 的 Run/Step 谱系，打开经过摘要校验的 Artifact 预览，并把 Delivery 决策写回现有
+Runtime service。V2-010 才会加入本地会话认证和独立 Artifact 下载授权，因此不要把当前
+Alpha 控制面暴露到 loopback 之外。
 
 同一条零凭据路径也可以通过 Docker 运行：
 
@@ -217,7 +231,7 @@ Hook/self-loop 边界、按顺序拆分的 PR 与 Definition of Done。
 把用户明确选择的飞书来源转成经过验证的项目决策记录，再通过持久审批把已接受的 Delivery
 发布为 Wiki 草稿。
 
-前七个收敛切片已在当前分支通过测试级验收：
+前八个收敛切片已在当前分支通过测试级验收：
 [V2-001 统一 Ingress](docs/V2_001_UNIFIED_INGRESS.md) 提供跨重启的消息身份；
 [V2-002 持久产品审批](docs/V2_002_DURABLE_PRODUCT_APPROVALS.md) 把 computer action 绑定到
 持久 Intent、Approval、claim、Artifact 与 Receipt；
@@ -227,7 +241,9 @@ Hook/self-loop 边界、按顺序拆分的 PR 与 Definition of Done。
 [V2-005 Step + Verifier](docs/V2_005_STEP_VERIFIER.md) 记录 Step 因果链与验证证据；
 [V2-006 原子 Delivery](docs/V2_006_ATOMIC_DELIVERY.md) 在同一事务关闭全部数据库终态；
 [V2-007 Delivery 决定](docs/V2_007_DELIVERY_DECISIONS.md) 持久化五种主人决定，并为修改请求
-原子创建绑定新快照的不可变 Run。
+原子创建绑定新快照的不可变 Run；
+[V2-008 本地 Control Room](docs/V2_008_CONTROL_ROOM.md) 则把这些耐久 projection 组合成
+响应式主人界面，同时不创建第二套事实来源。
 
 ## 稳定能力与原型边界
 
@@ -241,6 +257,8 @@ Hook/self-loop 边界、按顺序拆分的 PR 与 Definition of Done。
 - Run/Thread/scheduler/Delivery/Attention/Outbox 原子终结，并覆盖故障注入回滚；
 - accept/revise/reject/defer/take-over 决定可幂等、可 replay；修改请求原子排队新的
   snapshot-bound Run，同时保留全部旧工作；
+- 响应式 loopback Control Room：按 Project 分组的并行 Thread、有界 Attention 队列、
+  单 Thread Run/Step 谱系、摘要校验 Artifact 预览与已有五种 Delivery 决策；
 - 飞书/本地统一 Ingress、跨重启入站去重、规范化消息 Artifact 与持久保守路由；
 - 持久 Thread 更新、不可变 replacement snapshot/Run、方法 Branch 谱系、取消传播与
   仅限 owner 的路由决定；
@@ -256,6 +274,8 @@ Hook/self-loop 边界、按顺序拆分的 PR 与 Definition of Done。
 - 首次接收的消息仍会从耐久 Ingress 进入兼容助理；computer gateway 仍内联执行已
   claim 的 Action，而不是交给 Worker Host；
 - Delivery 通知意图已事务化，但渠道 dispatcher 与发送 Receipt 尚未接入 Outbox；
+- Control Room 尚无 actor-scoped 本地会话和独立 Artifact 下载授权；这些仍属于 V2-010，
+  且 loopback 之外的绑定保持关闭；
 - 飞书长连接和卡片已有 mock 契约测试，但仍需真实凭据与已发布 App 的 smoke test；
 - 广义视觉 computer-use 尚未交付；真实 macOS Provider 刻意只允许预先创建、精确
   allowlist 的 Shortcuts；
